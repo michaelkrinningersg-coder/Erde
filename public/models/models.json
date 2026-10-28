@@ -43,5 +43,47 @@
     "length_m": 11.4,
     "span_m": 16.12,
     "tris": 624
+  },
+  "rakete_stufe1": {
+    "length_m": 42.0,
+    "span_m": 4.35,
+    "tris": 1864,
+    "x_min_m": -58.25,
+    "x_max_m": -16.25
+  },
+  "rakete_stufe2": {
+    "length_m": 13.55,
+    "span_m": 3.72,
+    "tris": 416,
+    "x_min_m": -19.25,
+    "x_max_m": -5.7
+  },
+  "kapsel_trunk": {
+    "length_m": 3.7,
+    "span_m": 5.2,
+    "tris": 116,
+    "x_min_m": -5.7,
+    "x_max_m": -2.0
+  },
+  "kapsel": {
+    "length_m": 5.55,
+    "span_m": 4.0,
+    "tris": 904,
+    "x_min_m": -2.2,
+    "x_max_m": 3.35
+  },
+  "fallschirm": {
+    "length_m": 43.37,
+    "span_m": 64.38,
+    "tris": 1568,
+    "x_min_m": 1.47,
+    "x_max_m": 44.85
+  },
+  "kapsel_gluehen": {
+    "length_m": 3.0,
+    "span_m": 6.1,
+    "tris": 576,
+    "x_min_m": -3.5,
+    "x_max_m": -0.5
   }
 }

@@ -18,6 +18,7 @@ import {
 } from 'cesium';
 import { eciToEcf, gstime, json2satrec, propagate, type OMMJsonObject, type SatRec } from 'satellite.js';
 import { satelliteIcon } from '../icons';
+import { fixModelAxes } from './modelAxes';
 
 interface Omm extends OMMJsonObject {
   DISPLAY_NAME?: string;
@@ -170,7 +171,7 @@ export class Satellites {
       viewFrom: model ? new Cartesian3(-model.size * 2.2, -model.size * 1.6, model.size * 0.9) : new Cartesian3(0, -1_800_000, 900_000),
       description: describe(o, g.name),
       // +X des Modells zeigt in Flugrichtung, +Z von der Erde weg
-      orientation: model ? new VelocityOrientationProperty(position) : undefined,
+      orientation: model ? fixModelAxes(new VelocityOrientationProperty(position)) : undefined,
       model: model
         ? {
             uri: `./models/${model.file}.glb`,

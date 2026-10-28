@@ -50,8 +50,8 @@ MAT = {
     "rot": dict(c=(0.80, 0.10, 0.08), m=0.0, r=0.8),                               # Fallschirmbahnen
     "stoff": dict(c=(0.95, 0.95, 0.93), m=0.0, r=0.8),
     "leine": dict(c=(0.80, 0.78, 0.72), m=0.0, r=0.7),
-    "plasma": dict(c=(1.0, 0.45, 0.12), m=0.0, r=0.5, e=4.0, a=0.35),              # Wiedereintrittsglühen
-    "plasma_kern": dict(c=(1.0, 0.70, 0.30), m=0.0, r=0.5, e=10.0, a=0.7),
+    "plasma": dict(c=(1.0, 0.45, 0.12), m=0.0, r=0.5, e=2.5, a=0.35),              # Wiedereintrittsglühen
+    "plasma_kern": dict(c=(1.0, 0.70, 0.30), m=0.0, r=0.5, e=5.0, a=0.7),
 }
 _mats, _tex = {}, {}
 

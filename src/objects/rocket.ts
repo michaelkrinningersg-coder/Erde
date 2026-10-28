@@ -22,6 +22,7 @@ import {
 } from 'cesium';
 import { degreesToRadians, eciToEcf, geodeticToEcf, gstime, propagate, type SatRec } from 'satellite.js';
 import { launchPadIcon, rocketIcon } from '../icons';
+import { MODEL_AXIS_FIX } from './modelAxes';
 
 // Raketenstart zu einer Raumstation – vereinfachte, aber physikalisch plausible Mission:
 //  1. Start, wenn der Startplatz unter der Bahnebene der Station hindurchläuft (in-plane launch)
@@ -182,6 +183,8 @@ export function planMission(viewer: Viewer, site: LaunchSite, target: RocketTarg
     return Math.atan2(dot(r, e2), dot(r, e1));
   };
   const stationRadius = Math.hypot(...st0.r);
+  // Andockstutzen vorne an der Station (km vor der Stationsmitte)
+  const dockOffset = target.id === '25544' ? 0.036 : 0.026;
 
   const position = new SampledPositionProperty();
   position.setInterpolationOptions({ interpolationDegree: 3, interpolationAlgorithm: LagrangePolynomialApproximation });
@@ -191,7 +194,8 @@ export function planMission(viewer: Viewer, site: LaunchSite, target: RocketTarg
   const theta1 = 1800 / RE;
   for (let t = 0; t <= ASCENT_S; t += 2) {
     const x = t / ASCENT_S;
-    const alt = PARK_ALT * Math.pow(smooth(x), 0.6);
+    // + Höhe der Kapsel über dem Boden, solange der ganze Stapel steht (58 m)
+    const alt = PARK_ALT * Math.pow(smooth(x), 0.6) + STACK_H * (1 - x);
     sample(launchMs + t * 1000, inPlane(theta1 * x * x, RE + alt));
   }
 
@@ -220,7 +224,7 @@ export function planMission(viewer: Viewer, site: LaunchSite, target: RocketTarg
   }
   const approachStart = transferStart + transferS * 1000;
 
-  // 4) Annäherung: eigene Bahn weich in die Position der Station überblenden (von hinten, unten)
+  // 4) Annäherung: eigene Bahn weich in die Position des Andockstutzens überblenden
   let rOwn = stationRadius - 5;
   for (let s = 10; s <= APPROACH_S; s += 10) {
     theta += Math.sqrt(MU / rOwn ** 3) * 10;
@@ -228,9 +232,10 @@ export function planMission(viewer: Viewer, site: LaunchSite, target: RocketTarg
     const ms = approachStart + s * 1000;
     const st = stationEci(target.satrec, ms)!;
     const w = smooth(s / APPROACH_S);
-    const behind = scale(norm(st.v), -0.05 * (1 - w)); // die letzten 50 m von hinten
+    // Ziel: Andockstutzen vorne an der Station; die letzten 50 m von vorn heranfliegen
+    const port = add(st.r, scale(norm(st.v), dockOffset + 0.05 * (1 - w)));
     const own = inPlane(theta, rOwn);
-    sample(ms, add(add(scale(own, 1 - w), scale(st.r, w)), behind));
+    sample(ms, add(scale(own, 1 - w), scale(port, w)));
   }
   const dockMs = approachStart + APPROACH_S * 1000;
 
@@ -243,8 +248,8 @@ export function planMission(viewer: Viewer, site: LaunchSite, target: RocketTarg
   for (let s = 0; s <= UNDOCK_S; s += 10) {
     const ms = undockMs + s * 1000;
     const st = stationEci(target.satrec, ms)!;
-    const d = 2 * smooth(s / UNDOCK_S); // km zurück
-    last = add(add(st.r, scale(norm(st.v), -d)), scale(norm(st.r), -0.3 * smooth(s / UNDOCK_S)));
+    const d = 2 * smooth(s / UNDOCK_S); // km nach vorn weg
+    last = add(add(st.r, scale(norm(st.v), dockOffset + d)), scale(norm(st.r), -0.3 * smooth(s / UNDOCK_S)));
     ret.addSample(JulianDate.fromDate(new Date(ms)), toFixed(last, ms));
   }
   // Bahnebene beim Abdocken
@@ -320,11 +325,18 @@ export function planMission(viewer: Viewer, site: LaunchSite, target: RocketTarg
 
   // Kapsel-Position über die ganze Mission
   const stationPos = target.entity.position!;
+  const dockedPosition = (time: JulianDate, result?: Cartesian3) => {
+    const p = stationPos.getValue(time, result);
+    const p1 = stationPos.getValue(JulianDate.addSeconds(time, 1, new JulianDate()), new Cartesian3());
+    if (!p || !p1) return p;
+    const dir = Cartesian3.normalize(Cartesian3.subtract(p1, p, new Cartesian3()), new Cartesian3());
+    return Cartesian3.add(p, Cartesian3.multiplyByScalar(dir, dockOffset * 1000, dir), p);
+  };
   const capsulePos = new CallbackPositionProperty((time, result) => {
     if (!time) return undefined;
     if (JulianDate.lessThan(time, launch)) return padPosition(site, result);
     if (JulianDate.lessThan(time, times.docked)) return position.getValue(time, result);
-    if (JulianDate.lessThan(time, times.undock)) return stationPos.getValue(time, result);
+    if (JulianDate.lessThan(time, times.undock)) return dockedPosition(time, result);
     if (JulianDate.lessThan(time, times.landed)) return ret.getValue(time, result);
     return Cartesian3.clone(landedPos, result);
   }, false);
@@ -414,7 +426,7 @@ export function planMission(viewer: Viewer, site: LaunchSite, target: RocketTarg
   const pad = new Entity({
     id: `${id}-pad`,
     name: `Startplatz ${site.name}`,
-    position: padPosition(site),
+    position: padPosition(site, undefined, 0),
     billboard: { image: launchPadIcon(), verticalOrigin: VerticalOrigin.BOTTOM, scaleByDistance: new NearFarScalar(5e4, 1, 2e7, 0.6) },
     label: {
       text: site.name.replace(/ \(.*\)$/, ''),
@@ -454,7 +466,8 @@ function quatFromX(pos: Cartesian3, x: Cartesian3): Quaternion {
   );
   const Y = Cartesian3.cross(Z, X, new Cartesian3());
   const m = new Matrix3(X.x, Y.x, Z.x, X.y, Y.y, Z.y, X.z, Y.z, Z.z);
-  return Quaternion.fromRotationMatrix(m);
+  // Cesiums glTF-Achsenkorrektur ausgleichen (siehe modelAxes.ts)
+  return Quaternion.multiply(Quaternion.fromRotationMatrix(m), MODEL_AXIS_FIX, new Quaternion());
 }
 
 function orientationProperty(pos: CallbackPositionProperty, aim: (t: JulianDate) => Aim) {
@@ -528,8 +541,11 @@ function phaseAt0(times: Record<Phase, JulianDate>, time: JulianDate): Phase | '
   return 'waiting';
 }
 
-function padPosition(site: LaunchSite, result?: Cartesian3) {
-  return Cartesian3.fromDegrees(site.lon, site.lat, 0, undefined, result);
+/** Kapselmitte über dem Boden, wenn die ganze Rakete auf der Rampe steht (km) */
+const STACK_H = 0.0585;
+
+function padPosition(site: LaunchSite, result?: Cartesian3, height = STACK_H * 1000) {
+  return Cartesian3.fromDegrees(site.lon, site.lat, height, undefined, result);
 }
 
 /** In welcher Phase ist die Mission zu diesem Zeitpunkt? */
