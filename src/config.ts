@@ -52,12 +52,30 @@ export interface TimeLayerSpec {
   /** Eigenes Archiv (von GitHub Actions befüllt), relativ zur Seite */
   archive: string;
   credit: string;
-  /** Nur Wolken: Gebiet des Echtfarbenbildes, in dem die Wolken tagsüber zurücktreten */
-  cutout?: { west: number; south: number; east: number; north: number };
+  /** Woher die Bilder kommen: WMS-Kacheln (Standard) oder NOAA-Vollscheibe in Satellitenperspektive */
+  source?: 'wms' | 'noaa-fd';
+  /** Nur Echtfarben: welche der COLOR_REGIONS dieses Bild ist */
+  region?: number;
+  /** Nur Wolken: Echtfarben-Gebiete, in denen die Wolken tagsüber zurücktreten */
+  cutouts?: ColorRegion[];
 }
 
-/** Ausschnitt des Echtfarbenbildes (Europa & Afrika) */
-const COLOR_RECT = { west: -48, south: -38, east: 64, north: 72 };
+export type Rect = { west: number; south: number; east: number; north: number };
+
+/** Ein Echtfarben-Gebiet: Ausschnitt und Standort des geostationären Satelliten */
+export interface ColorRegion {
+  rect: Rect;
+  satLon: number;
+}
+
+/**
+ * Echtfarben-Gebiete. Wo sie sich überlappen (Atlantik), teilen sie sich das Bild weich auf;
+ * die Gewichte aller Gebiete und der Infrarot-Wolken ergeben überall zusammen 100 %.
+ */
+export const COLOR_REGIONS: ColorRegion[] = [
+  { rect: { west: -48, south: -38, east: 64, north: 72 }, satLon: 0 }, // Meteosat-12: Europa & Afrika
+  { rect: { west: -140, south: -60, east: -20, north: 62 }, satLon: -75.2 }, // GOES-19: Amerika
+];
 
 /**
  * Wolken weltweit: EUMETSAT „Geostationary Ring IR10.8 µm – Multimission“.
@@ -83,7 +101,7 @@ export const CLOUDS: TimeLayerSpec = {
   zIndex: 1,
   archive: './clouds',
   credit: 'Wolken: © EUMETSAT (Geostationary Ring IR10.8, Multimission)',
-  cutout: COLOR_RECT,
+  cutouts: COLOR_REGIONS,
 };
 
 /**
@@ -99,7 +117,8 @@ export const COLOR_EUROPE: TimeLayerSpec = {
   format: 'image/jpeg',
   stepMinutes: 60,
   typicalLatencyMinutes: 40,
-  rect: COLOR_RECT,
+  rect: COLOR_REGIONS[0].rect,
+  region: 0,
   width: 4096,
   height: 4096,
   tilesX: 8,
@@ -110,6 +129,33 @@ export const COLOR_EUROPE: TimeLayerSpec = {
   zIndex: 2,
   archive: './color',
   credit: 'Echtfarben: © EUMETSAT (Meteosat-12 GeoColour)',
+};
+
+/**
+ * Echtfarben Amerika: GOES-19 (GOES-East, 75,2° W) „GeoColor“ von NOAA, alle 10 min, ~20 min Verzögerung.
+ * Kommt als Vollscheibe in Satellitenperspektive und wird auf Längen-/Breitengrade umgerechnet.
+ */
+export const COLOR_AMERICA: TimeLayerSpec = {
+  id: 'color-america',
+  name: 'Echtfarben Amerika',
+  source: 'noaa-fd',
+  wms: 'https://cdn.star.nesdis.noaa.gov/GOES19/ABI/FD/GEOCOLOR',
+  layer: 'GOES19-ABI-FD-GEOCOLOR-5424x5424',
+  format: 'image/jpeg',
+  stepMinutes: 60,
+  typicalLatencyMinutes: 40,
+  rect: COLOR_REGIONS[1].rect,
+  region: 1,
+  width: 3072,
+  height: 3072,
+  tilesX: 1,
+  tilesY: 1,
+  splitX: 1,
+  mode: 'color',
+  nightAlpha: 0,
+  zIndex: 2,
+  archive: './color-america',
+  credit: 'Echtfarben Amerika: NOAA/NESDIS/STAR, GOES-19 GeoColor',
 };
 
 /** Darstellungs-Entfernung der Planeten-Marker (Richtung stimmt, Entfernung ist symbolisch) */

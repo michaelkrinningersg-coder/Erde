@@ -8,7 +8,7 @@ import {
   type ImageryProvider,
   type Viewer,
 } from 'cesium';
-import type { TimeLayerSpec } from '../config';
+import { COLOR_REGIONS, type TimeLayerSpec } from '../config';
 import { archiveName, isoTime, wmsTileUrls, type ImageSource } from './cloudUrls';
 import type { ImageRequest, ImageResponse } from './cloudWorker';
 
@@ -19,7 +19,7 @@ const WARM_FRAMES = 8; // so viele Zeitschritte in Abspielrichtung werden vorab 
 interface FrameEntry {
   state: 'loading' | 'ready' | 'failed';
   parts?: ImageBitmap[];
-  inner?: { bitmap: ImageBitmap; rect: Rectangle };
+  inner: { bitmap: ImageBitmap; rect: Rectangle }[];
   lastUsed: number;
   failedAt?: number;
 }
@@ -88,7 +88,7 @@ export class TimeImageLayer {
   private readonly credit: Credit;
   private readonly entries = new Map<number, FrameEntry>();
   /** Je angezeigtem Zeitpunkt: Hauptebene und ggf. Innenebene (Wolken im Echtfarben-Gebiet) */
-  private readonly layers = new Map<number, { main: ImageryLayer; inner?: ImageryLayer }>();
+  private readonly layers = new Map<number, { main: ImageryLayer; inner: ImageryLayer[] }>();
   private readonly callbacks = new Map<number, (r: ImageResponse) => void>();
   private readonly warmed = new Set<number>();
   /** Bilder im eigenen Archiv (GitHub Pages), Zeit in ms */
@@ -104,8 +104,8 @@ export class TimeImageLayer {
   private visible = true;
   /** Zusätzlicher Faktor für die Deckkraft (z. B. Ausblenden beim nahen Reinzoomen) */
   alphaScale = 1;
-  /** Nur Wolken: Sichtbarkeit der Innenebene am Tag (= 1 − Deckkraft des Echtfarbenbildes) */
-  innerDayAlpha = 1;
+  /** Nur Wolken: Sichtbarkeit der Innenebenen am Tag, je Echtfarben-Gebiet (= 1 − dessen Deckkraft) */
+  innerDayAlpha: number[] = [];
 
   /** Wie stark diese Ebene gerade tatsächlich zu sehen ist (0…1) */
   effectiveAlpha() {
@@ -158,9 +158,18 @@ export class TimeImageLayer {
   }
 
   private *allLayers() {
+    for (const { main, inner } of this.layers.values()) yield main, yield* inner;
+  }
+
+  /** Sichtbarkeit und Tages-Deckkraft der Innenebenen an den aktuellen Stand anpassen */
+  private refreshLayerState() {
+    const show = this.visible && this.alphaScale > 0;
     for (const { main, inner } of this.layers.values()) {
-      yield main;
-      if (inner) yield inner;
+      main.show = show;
+      inner.forEach((l, k) => {
+        l.show = show;
+        l.dayAlpha = this.innerDayAlpha[k] ?? 1;
+      });
     }
   }
 
@@ -193,6 +202,7 @@ export class TimeImageLayer {
 
   /** Fragt beim Dienst nach, welches das neueste verfügbare Bild ist. */
   private async refreshLatest() {
+    if (this.spec.source === 'noaa-fd') return this.refreshLatestNoaa();
     try {
       const res = await fetch(`${this.spec.wms}?service=WMS&version=1.3.0&request=GetCapabilities`);
       const xml = await res.text();
@@ -201,6 +211,23 @@ export class TimeImageLayer {
       const lastInterval = dim?.[1].trim().split(',').pop() ?? '';
       const end = Date.parse(lastInterval.split('/')[1] ?? lastInterval);
       if (at >= 0 && Number.isFinite(end)) this.latest = Math.max(this.latest, this.floor(end));
+    } catch {
+      /* Schätzwert bleibt */
+    }
+  }
+
+  /** NOAA: neueste volle Stunde aus der Dateiliste des CDN */
+  private async refreshLatestNoaa() {
+    try {
+      const html = await (await fetch(`${this.spec.wms}/`)).text();
+      const re = /"(\d{4})(\d{3})(\d{2})00_[^"]*\.jpg"/g;
+      let m: RegExpExecArray | null;
+      let best = 0;
+      while ((m = re.exec(html))) {
+        const ms = Date.UTC(Number(m[1]), 0, 1) + (Number(m[2]) - 1) * 86_400_000 + Number(m[3]) * 3_600_000;
+        if (ms > best) best = ms;
+      }
+      if (best) this.latest = Math.max(this.latest, this.floor(best));
     } catch {
       /* Schätzwert bleibt */
     }
@@ -237,11 +264,7 @@ export class TimeImageLayer {
     else desired = []; // noch nichts da → bisherige Anzeige stehen lassen
 
     if (desired.length) this.applyLayers(desired);
-    else
-      for (const l of this.allLayers()) {
-        l.show = this.visible && this.alphaScale > 0;
-        l.dayAlpha = this.innerDayAlpha;
-      }
+    else this.refreshLayerState();
     this.onStatus?.({
       shownFrame: this.shownFrame,
       latest: this.latest,
@@ -255,7 +278,7 @@ export class TimeImageLayer {
     for (const [f, l] of this.layers) {
       if (!keep.has(f)) {
         this.viewer.imageryLayers.remove(l.main, true);
-        if (l.inner) this.viewer.imageryLayers.remove(l.inner, true);
+        for (const inner of l.inner) this.viewer.imageryLayers.remove(inner, true);
         this.layers.delete(f);
       }
     }
@@ -266,24 +289,20 @@ export class TimeImageLayer {
         const provider = new BitmapImageryProvider(entry.parts!, this.rect, this.credit);
         const main = new ImageryLayer(provider as unknown as ImageryProvider, { alpha, nightAlpha: this.spec.nightAlpha });
         this.insertOrdered(main, this.spec.zIndex * 1e13 + f);
-        l = { main };
-        if (entry.inner) {
-          const p = new BitmapImageryProvider([entry.inner.bitmap], entry.inner.rect, this.credit);
-          l.inner = new ImageryLayer(p as unknown as ImageryProvider, { alpha, dayAlpha: this.innerDayAlpha, nightAlpha: 1 });
-          this.insertOrdered(l.inner, this.spec.zIndex * 1e13 + f + 1);
+        l = { main, inner: [] };
+        for (const [k, part] of entry.inner.entries()) {
+          const p = new BitmapImageryProvider([part.bitmap], part.rect, this.credit);
+          const inner = new ImageryLayer(p as unknown as ImageryProvider, { alpha, dayAlpha: this.innerDayAlpha[k] ?? 1, nightAlpha: 1 });
+          this.insertOrdered(inner, this.spec.zIndex * 1e13 + f + 1);
+          l.inner.push(inner);
         }
         this.layers.set(f, l);
       }
-      const show = this.visible && this.alphaScale > 0;
       l.main.alpha = alpha * this.alphaScale;
-      l.main.show = show;
-      if (l.inner) {
-        l.inner.alpha = alpha * this.alphaScale;
-        l.inner.dayAlpha = this.innerDayAlpha;
-        l.inner.show = show;
-      }
+      for (const inner of l.inner) inner.alpha = alpha * this.alphaScale;
       this.entries.get(f)!.lastUsed = performance.now();
     }
+    this.refreshLayerState();
     this.shownFrame = desired.reduce((a, b) => (b[1] >= a[1] ? b : a))[0];
   }
 
@@ -308,7 +327,7 @@ export class TimeImageLayer {
   }
 
   private async build(f: number) {
-    const entry: FrameEntry = { state: 'loading', lastUsed: performance.now() };
+    const entry: FrameEntry = { state: 'loading', lastUsed: performance.now(), inner: [] };
     this.entries.set(f, entry);
     this.building++;
     const id = this.nextId++;
@@ -321,17 +340,22 @@ export class TimeImageLayer {
         mode: this.spec.mode,
         splitX: this.spec.splitX,
         archiveUrl: this.archiveUrl(f),
-        cutout: this.spec.cutout,
+        regions: this.spec.cutouts ?? COLOR_REGIONS,
+        region: this.spec.region,
+        splitRegions: !!this.spec.cutouts,
+        noaa: this.spec.source === 'noaa-fd' && this.spec.region !== undefined
+          ? { base: this.spec.wms, product: this.spec.layer.replace('5424x5424', '1808x1808'), satLon: COLOR_REGIONS[this.spec.region].satLon }
+          : undefined,
       } satisfies ImageRequest);
     });
     this.building--;
     if (res.ok) {
       entry.state = 'ready';
       entry.parts = res.parts;
-      if (res.inner) {
-        const r = res.inner.rect;
-        entry.inner = { bitmap: res.inner.bitmap, rect: Rectangle.fromDegrees(r.west, r.south, r.east, r.north) };
-      }
+      entry.inner = res.inner.map(({ bitmap, rect: r }) => ({
+        bitmap,
+        rect: Rectangle.fromDegrees(r.west, r.south, r.east, r.north),
+      }));
       this.lastError = undefined;
       this.evict();
     } else {
@@ -351,7 +375,7 @@ export class TimeImageLayer {
     ready.sort((a, b) => a[1].lastUsed - b[1].lastUsed);
     for (const [f, e] of ready.slice(0, excess)) {
       e.parts?.forEach((b) => b.close());
-      e.inner?.bitmap.close();
+      e.inner.forEach((i) => i.bitmap.close());
       this.entries.delete(f);
     }
   }

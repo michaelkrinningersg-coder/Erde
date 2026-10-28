@@ -16,13 +16,18 @@
     <aside id="panel" class="glass">
       <header>
         <h1>🌍 Erde</h1>
-        <button id="panel-toggle" class="icon-btn" title="Bedienfeld ein-/ausklappen">☰</button>
+        <span class="head-btns">
+          <button id="home-btn" class="icon-btn" title="Nach Hause">🏠</button>
+          <button id="panel-toggle" class="icon-btn" title="Bedienfeld ein-/ausklappen">☰</button>
+        </span>
       </header>
       <div id="panel-body"></div>
     </aside>
 
-    <div id="status" class="glass"></div>
-    <div id="focus-chip" class="glass hidden"></div>
+    <div id="topright">
+      <div id="status" class="glass"></div>
+      <div id="focus-chip" class="glass hidden"></div>
+    </div>
 
     <div id="timebar" class="glass">
       <button data-speed="-3600" title="1 Stunde pro Sekunde zurück">⏪</button>

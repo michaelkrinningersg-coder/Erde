@@ -7,6 +7,7 @@ import { AIRPORTS, type Flights } from './objects/flights';
 import type { Satellites } from './objects/satellites';
 import type { Sky } from './objects/sky';
 import type { SolarSystemView } from './solar/solarSystem';
+import { HOME_CITIES, type HomeControl } from './home';
 import type { TimeControl } from './time';
 
 type Child = Node | string | null | undefined | false;
@@ -83,7 +84,9 @@ export interface UiDeps {
   layers: GlobeLayers;
   clouds: TimeImageLayer;
   color: TimeImageLayer;
+  colorAmerica: TimeImageLayer;
   solar: SolarSystemView;
+  home: HomeControl;
   sky: Sky;
   satellites: Satellites;
   flights: Flights;
@@ -92,7 +95,7 @@ export interface UiDeps {
 }
 
 export function buildUi(d: UiDeps) {
-  const { viewer, layers, clouds, color, solar, sky, satellites, flights, camera, time } = d;
+  const { viewer, layers, clouds, color, colorAmerica, solar, home, sky, satellites, flights, camera, time } = d;
   const body = document.getElementById('panel-body')!;
   const scene = viewer.scene;
 
@@ -102,6 +105,7 @@ export function buildUi(d: UiDeps) {
     true,
     toggle('Wolken (echte Satellitenbilder)', true, (v) => (clouds.show = v)).row,
     toggle('Echtfarben Europa & Afrika', true, (v) => (color.show = v)).row,
+    toggle('Echtfarben Amerika', true, (v) => (colorAmerica.show = v)).row,
     toggle('Stadtlichter bei Nacht', true, (v) => (layers.night.show = v)).row,
     toggle('Tag & Nacht (Sonnenlicht)', true, (v) => {
       scene.globe.enableLighting = v;
@@ -213,12 +217,14 @@ export function buildUi(d: UiDeps) {
   focusBtn.addEventListener('click', () => camera.focus(FOCUS_TARGETS[Number(targetSelect.value)]));
   const homeBtn = h('button', { textContent: '🌍 Ganze Erde' });
   homeBtn.addEventListener('click', () => camera.home());
+  const setHomeBtn = h('button', { textContent: '🏠 Zuhause festlegen' });
+  setHomeBtn.addEventListener('click', () => openHomeDialog());
   const view = section(
     '🎯 Ansicht',
     false,
     h('div', { class: 'row wrap' }, targetSelect, focusBtn),
     toggle('Blick aus dem All (Erde dreht sich)', false, (v) => camera.setSpaceView(v)).row,
-    h('div', { class: 'row wrap' }, homeBtn),
+    h('div', { class: 'row wrap' }, homeBtn, setHomeBtn),
     h('p', {
       class: 'hint',
       innerHTML: '<b>Doppelklick</b> auf die Erde: um diesen Punkt drehen.<br><b>Doppelklick</b> auf ein Objekt: mitfliegen.',
@@ -283,6 +289,59 @@ export function buildUi(d: UiDeps) {
   if (window.innerWidth < 700) panel.classList.add('collapsed');
   document.getElementById('panel-toggle')!.addEventListener('click', () => panel.classList.toggle('collapsed'));
 
+  // ── Zuhause ───────────────────────────────────────────────────────────
+  function openHomeDialog() {
+    const close = () => dlg.remove();
+    const status = h('p', { class: 'hint' });
+    const accept = (place: { name: string; lat: number; lon: number } | undefined) => {
+      if (!place) return;
+      home.set(place);
+      close();
+      home.goHome();
+    };
+    const gpsBtn = h('button', { class: 'primary', textContent: '📍 Meinen Standort verwenden' });
+    gpsBtn.addEventListener('click', () => {
+      if (!navigator.geolocation) return (status.textContent = 'Dieser Browser kennt keinen Standort.');
+      status.textContent = 'Standort wird ermittelt …';
+      navigator.geolocation.getCurrentPosition(
+        // Auf ~1 km gerundet – genauer muss es für die Erdansicht nicht sein
+        (p) => accept({ name: 'Mein Standort', lat: +p.coords.latitude.toFixed(2), lon: +p.coords.longitude.toFixed(2) }),
+        () => (status.textContent = 'Standort nicht erlaubt oder nicht verfügbar – bitte eine Stadt wählen.'),
+        { timeout: 15000 },
+      );
+    });
+    const citySel = h('select', {}, ...HOME_CITIES.map((c, i) => h('option', { value: String(i), textContent: c.name })));
+    const cityBtn = h('button', { textContent: 'Übernehmen' });
+    cityBtn.addEventListener('click', () => accept(HOME_CITIES[Number(citySel.value)]));
+    const centerBtn = h('button', { textContent: '🎯 Punkt in der Bildmitte übernehmen' });
+    centerBtn.addEventListener('click', () => {
+      const p = home.centerOfView();
+      if (!p) return (status.textContent = 'In der Bildmitte ist gerade keine Erde zu sehen.');
+      accept({ ...p, name: 'Zuhause' });
+    });
+    const x = h('button', { class: 'small ghost', textContent: '✕', title: 'Schließen' });
+    x.addEventListener('click', close);
+    const dlg = h(
+      'div',
+      { class: 'dialog-backdrop' },
+      h(
+        'div',
+        { class: 'dialog glass' },
+        h('div', { class: 'row' }, h('h2', { textContent: '🏠 Wo ist euer Zuhause?' }), x),
+        gpsBtn,
+        h('div', { class: 'row wrap' }, h('span', { class: 'lbl', textContent: 'Stadt' }), citySel, cityBtn),
+        centerBtn,
+        status,
+        h('p', { class: 'hint', textContent: 'Wird nur in diesem Browser gespeichert und nirgendwohin gesendet.' }),
+      ),
+    );
+    dlg.addEventListener('click', (e) => e.target === dlg && close());
+    document.body.append(dlg);
+  }
+  document.getElementById('home-btn')!.addEventListener('click', () => {
+    if (!home.goHome()) openHomeDialog();
+  });
+
   // ── Zeitleiste ────────────────────────────────────────────────────────
   for (const btn of document.querySelectorAll<HTMLButtonElement>('#timebar [data-speed]')) {
     btn.addEventListener('click', () => time.setSpeed(Number(btn.dataset.speed)));
@@ -309,7 +368,9 @@ export function buildUi(d: UiDeps) {
   let cloudStatus: LayerStatus = { loading: 0 };
   let colorStatus: LayerStatus = { loading: 0 };
   clouds.onStatus = (s) => (cloudStatus = s);
+  let americaStatus: LayerStatus = { loading: 0 };
   color.onStatus = (s) => (colorStatus = s);
+  colorAmerica.onStatus = (s) => (americaStatus = s);
   const speedButtons = document.querySelectorAll<HTMLButtonElement>('#timebar [data-speed]');
   const describe = (icon: string, label: string, st: LayerStatus, live: boolean) => {
     if (!st.shownFrame) return `${icon} ${label} wird geladen …${st.error ? ' <small>(Dienst antwortet nicht – neuer Versuch läuft)</small>' : ''}`;
@@ -330,7 +391,8 @@ export function buildUi(d: UiDeps) {
     }
     const lines = [];
     if (clouds.show) lines.push(describe('☁️', 'Wolken', cloudStatus, live));
-    if (color.show) lines.push(describe('🎨', 'Echtfarben', colorStatus, live));
+    if (color.show) lines.push(describe('🎨', 'Europa', colorStatus, live));
+    if (colorAmerica.show) lines.push(describe('🎨', 'Amerika', americaStatus, live));
     const txt = lines.join('<br>') || '—';
     status.innerHTML = txt;
   }, 500);

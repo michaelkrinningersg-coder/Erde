@@ -54,7 +54,7 @@ bauen), Unreal (schwer, Desktop-only).
 ### Echtfarben Europa & Afrika – Meteosat-12 „GeoColour“
 
 - Echtes Farbbild vom Tag (Wolken, Sand, Schnee, Rauch), Ausschnitt 48° W – 64° O, 38° S – 72° N.
-- Stündlich im Archiv (7 Tage, ~1,9 MB pro Bild, 4096 × 4096 px ≈ 2–3 km), nur auf der Tagseite.
+- Stündlich im Archiv (5 Tage, ~1,9 MB pro Bild, 4096 × 4096 px ≈ 2–3 km), nur auf der Tagseite.
 - Rand weich ausgeblendet (zum Ausschnittsrand und zur Kante der Satellitensicht), darunter
   das weltweite Infrarot-Wolkenbild → keine harte Kante.
 - Beim nahen Reinzoomen (unter ~700 km Höhe) blendet es aus, damit die 10-m-Karte sichtbar wird.
@@ -62,6 +62,16 @@ bauen), Unreal (schwer, Desktop-only).
   zurück, den das Farbbild übernimmt (gleiche Gewichtsfunktion für beide; nachts volle Infrarot-Wolken).
 - Westrand bis 48° W mit 13° breitem Übergang, damit z. B. Sonnenglanz auf dem Atlantik (echtes
   Phänomen im Satellitenbild) nicht an einer Kante abreißt.
+
+### Echtfarben Amerika – GOES-19 „GeoColor“ (NOAA)
+
+- NOAA-CDN liefert die Vollscheibe alle 10 min mit ~20 min Verzögerung (NASA GIBS hinkt ~6 h).
+- Das Bild zeigt die Erde aus Sicht des Satelliten (75,2° W) und wird mit den Formeln aus dem
+  GOES-R Product User Guide auf Längen-/Breitengrade umgerechnet (im Archiv-Skript mit numpy,
+  als Rückfall auch im Browser mit der kleineren 1808-px-Version).
+- Mehrere Echtfarben-Gebiete teilen sich Überlappungen (Atlantik) über eine gemeinsame
+  Gewichtung; die Infrarot-Wolken treten je Gebiet genau um dessen Anteil zurück.
+- Archiv: stündlich, 5 Tage, 3072 px (~4 km), ~2 MB pro Bild. GitHub Pages bleibt so unter 1 GB.
 
 ### Erdoberfläche
 
@@ -101,7 +111,8 @@ immer Daten hat. JWST hat keine Bahndaten (steht am L2) → Näherung „1,5 Mio
 | M5 | Fokuspunkt, „Blick aus dem All“, Flugzeug-Simulation | ✅ |
 | M6 | Sonnensystem-Ansicht (kindgerecht zusammengerückt, echte Richtungen) | ✅ |
 | M7 | Echtfarben Europa/Afrika (Meteosat-12, stündlich) | ✅ |
-| M7b | Echtfarben Amerika (GOES GeoColor), 10-Minuten-Schritte für die letzten Stunden | geplant |
+| M7b | Echtfarben Amerika (GOES-19 GeoColor von NOAA, auf Längen/Breiten umgerechnet) | ✅ |
+| M7c | Zuhause-Knopf | ✅ |
 | M8 | Desktop-EXE (Tauri oder Electron) | geplant |
 | M9 | Handy (PWA oder Capacitor) | geplant |
 | M10 | Sonneneinstrahlung als Karte (W/m²) | optional |
@@ -110,4 +121,3 @@ immer Daten hat. JWST hat keine Bahndaten (steht am L2) → Näherung „1,5 Mio
 ## 7. Offene Punkte
 
 1. Desktop-Hülle: Welche habt ihr bei den anderen Apps benutzt – **Electron** oder **Tauri**?
-2. „Zuhause“-Knopf: Soll ein fester Ort (euer Wohnort) als Fokusziel hinterlegt werden?

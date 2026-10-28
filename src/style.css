@@ -134,6 +134,40 @@ select {
   display: none;
 }
 
+.head-btns {
+  display: flex;
+  gap: 6px;
+}
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.45);
+  padding: 16px;
+}
+
+.dialog {
+  width: min(420px, 100%);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color-scheme: dark;
+}
+
+.dialog h2 {
+  margin: 0;
+  font-size: 19px;
+  flex: 1;
+}
+
+.dialog .primary {
+  margin-top: 0;
+}
+
 .icon-btn {
   font-size: 18px;
   min-width: 40px;
@@ -281,20 +315,24 @@ details[open] > summary::before {
 }
 
 /* ── Status oben rechts ─────────────────────────────────────────────── */
-#status {
+#topright {
   position: absolute;
   top: 12px;
   right: 12px;
-  padding: 8px 14px;
-  font-size: 14px;
   z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
   max-width: 50vw;
 }
 
+#status {
+  padding: 8px 14px;
+  font-size: 14px;
+}
+
 #focus-chip {
-  position: absolute;
-  top: 58px;
-  right: 12px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -382,18 +420,15 @@ details[open] > summary::before {
     max-height: calc(100% - 190px);
   }
 
-  #status {
+  #topright {
     top: 8px;
     right: 8px;
     max-width: calc(100% - 190px);
-    font-size: 12px;
-    padding: 6px 10px;
   }
 
-  #focus-chip {
-    top: auto;
-    bottom: 150px;
-    right: 8px;
+  #status {
+    font-size: 12px;
+    padding: 6px 10px;
   }
 
   #timebar {
@@ -431,8 +466,7 @@ details[open] > summary::before {
 
 body.solar-mode #panel,
 body.solar-mode #timebar,
-body.solar-mode #status,
-body.solar-mode #focus-chip {
+body.solar-mode #topright {
   display: none;
 }
 

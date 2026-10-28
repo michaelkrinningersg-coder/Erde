@@ -3,8 +3,9 @@ import './style.css';
 import { Cartesian3, JulianDate, TimeInterval, Transforms } from 'cesium';
 import { CameraControl } from './camera';
 import { TimeImageLayer } from './clouds/timeLayer';
-import { CLOUDS, COLOR_EUROPE, MAX_ZOOM_OUT_M, TIME } from './config';
+import { CLOUDS, COLOR_AMERICA, COLOR_EUROPE, MAX_ZOOM_OUT_M, TIME } from './config';
 import { createViewer } from './globe';
+import { HomeControl } from './home';
 import { Flights } from './objects/flights';
 import { Satellites } from './objects/satellites';
 import { Sky } from './objects/sky';
@@ -27,20 +28,24 @@ async function main() {
   const time = new TimeControl(viewer);
   const clouds = new TimeImageLayer(viewer, CLOUDS);
   const color = new TimeImageLayer(viewer, COLOR_EUROPE);
+  const colorAmerica = new TimeImageLayer(viewer, COLOR_AMERICA);
+  const colorLayers = [color, colorAmerica]; // Reihenfolge wie COLOR_REGIONS
   const setEarliest = (start: JulianDate) => {
     const ms = JulianDate.toDate(start).getTime();
-    clouds.setEarliest(ms);
-    color.setEarliest(ms);
+    for (const l of [clouds, ...colorLayers]) l.setEarliest(ms);
   };
   setEarliest(viewer.clock.startTime);
   time.onRangeChange = setEarliest;
   viewer.clock.onTick.addEventListener((clock) => {
     // Echtfarbenbild (~2–3 km) beim nahen Reinzoomen ausblenden → darunter die scharfe 10-m-Karte
     const h = viewer.camera.positionCartographic.height;
-    color.alphaScale = Math.min(1, Math.max(0, (h - 150e3) / (700e3 - 150e3)));
-    color.update(clock.currentTime, clock.multiplier);
-    // Wolken im Echtfarben-Gebiet treten tagsüber genau so weit zurück, wie das Farbbild sichtbar ist
-    clouds.innerDayAlpha = 1 - color.effectiveAlpha();
+    const fade = Math.min(1, Math.max(0, (h - 150e3) / (700e3 - 150e3)));
+    for (const l of colorLayers) {
+      l.alphaScale = fade;
+      l.update(clock.currentTime, clock.multiplier);
+    }
+    // Wolken in den Echtfarben-Gebieten treten tagsüber genau so weit zurück, wie das jeweilige Farbbild sichtbar ist
+    clouds.innerDayAlpha = colorLayers.map((l) => 1 - l.effectiveAlpha());
     clouds.update(clock.currentTime, clock.multiplier);
   });
 
@@ -53,6 +58,7 @@ async function main() {
   }
   const flights = new Flights(viewer);
   const camera = new CameraControl(viewer);
+  const home = new HomeControl(viewer, camera);
 
   viewer.selectedEntityChanged.addEventListener((e) => satellites.highlight(e));
 
@@ -73,10 +79,10 @@ async function main() {
     { passive: true },
   );
 
-  buildUi({ viewer, layers, clouds, color, solar, sky, satellites, flights, camera, time });
+  buildUi({ viewer, layers, clouds, color, colorAmerica, solar, home, sky, satellites, flights, camera, time });
 
   // Für Experimente in der Browser-Konsole
-  Object.assign(window, { erde: { viewer, clouds, color, sky, satellites, flights, camera, time } });
+  Object.assign(window, { erde: { viewer, clouds, color, colorAmerica, sky, satellites, flights, camera, time } });
 }
 
 void main();

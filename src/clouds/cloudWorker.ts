@@ -9,9 +9,8 @@
 //  - mode 'color': Echtfarbenbild; zum Rand der Satellitensicht und des Ausschnitts weich ausgeblendet,
 //                  damit es ohne Kante in die weltweite Darstellung übergeht.
 
-import { colorWeight, wmsTileUrls, type ImageSource } from './cloudUrls';
-
-type Rect = { west: number; south: number; east: number; north: number };
+import type { ColorRegion, Rect } from '../config';
+import { noaaFileName, regionWeights, wmsTileUrls, type ImageSource } from './cloudUrls';
 
 export interface ImageRequest extends ImageSource {
   id: number;
@@ -20,12 +19,20 @@ export interface ImageRequest extends ImageSource {
   splitX: number;
   /** Fertiges Bild aus dem eigenen Archiv (GitHub Pages); sonst Kacheln vom WMS */
   archiveUrl?: string;
-  /** Nur 'ir': Gebiet des Echtfarbenbildes – dort wird die Wolkenschicht aufgeteilt (s. u.) */
-  cutout?: Rect;
+  /** Alle Echtfarben-Gebiete (für die gemeinsame Gewichtung) */
+  regions?: ColorRegion[];
+  /** Nur 'color': welches Gebiet dieses Bild ist */
+  region?: number;
+  /** Nur 'ir': in den Echtfarben-Gebieten wird die Wolkenschicht aufgeteilt (s. u.) */
+  splitRegions?: boolean;
+  /** NOAA-Vollscheibe statt WMS (nur wenn kein Archivbild da ist) */
+  noaa?: { base: string; product: string; satLon: number };
 }
 
+type Inner = { bitmap: ImageBitmap; rect: Rect };
+
 export type ImageResponse =
-  | { id: number; ok: true; parts: ImageBitmap[]; inner?: { bitmap: ImageBitmap; rect: Rect } }
+  | { id: number; ok: true; parts: ImageBitmap[]; inner: Inner[] }
   | { id: number; ok: false; error: string };
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
@@ -34,7 +41,7 @@ ctx.onmessage = async (ev: MessageEvent<ImageRequest>) => {
   const req = ev.data;
   try {
     const result = await buildTexture(req);
-    const transfer = result.ok ? [...result.parts, ...(result.inner ? [result.inner.bitmap] : [])] : [];
+    const transfer = result.ok ? [...result.parts, ...result.inner.map((i) => i.bitmap)] : [];
     ctx.postMessage(result, transfer);
   } catch (e) {
     ctx.postMessage({ id: req.id, ok: false, error: String((e as Error)?.message ?? e) } satisfies ImageResponse);
@@ -64,9 +71,15 @@ async function buildTexture(req: ImageRequest): Promise<ImageResponse> {
   const canvas = new OffscreenCanvas(W, H);
   const g = canvas.getContext('2d', { willReadFrequently: true })!;
 
+  let img: ImageData | undefined;
   if (req.archiveUrl) {
     const bmp = await fetchImage(req.archiveUrl);
     g.drawImage(bmp, 0, 0, W, H);
+    bmp.close();
+  } else if (req.noaa) {
+    const ms = Date.parse(req.time);
+    const bmp = await fetchImage(`${req.noaa.base}/${noaaFileName(ms, req.noaa.product)}`);
+    img = reprojectGeos(bmp, req.noaa.satLon, req.rect, W, H);
     bmp.close();
   } else {
     const tw = W / req.tilesX;
@@ -81,12 +94,12 @@ async function buildTexture(req: ImageRequest): Promise<ImageResponse> {
     );
   }
 
-  const img = g.getImageData(0, 0, W, H);
-  let inner: { bitmap: ImageBitmap; rect: Rect } | undefined;
+  img ??= g.getImageData(0, 0, W, H);
+  let inner: Inner[] = [];
   if (req.mode === 'ir') {
     toCloudLayer(img.data, W, H);
-    if (req.cutout) inner = await splitCutout(img, req.rect, req.cutout);
-  } else fadeColorEdges(img.data, W, H, req.rect);
+    if (req.splitRegions && req.regions) inner = await splitRegions(img, req.rect, req.regions);
+  } else fadeColorEdges(img.data, W, H, req.rect, req.regions ?? [], req.region ?? 0);
   g.putImageData(img, 0, 0);
 
   // In Spalten teilen (passt zum Kachelschema auf dem Globus).
@@ -99,48 +112,107 @@ async function buildTexture(req: ImageRequest): Promise<ImageResponse> {
 }
 
 /**
- * Teilt die Wolkenschicht im Echtfarben-Gebiet auf, damit dort keine Wolken doppelt liegen:
- *  - Hauptbild: Deckkraft × (1 − w) – immer sichtbar
- *  - Innenbild: Deckkraft × w – wird tagsüber nur so weit gezeigt, wie das Farbbild fehlt
- *    (und nachts voll), w = Gewicht des Farbbildes an dieser Stelle.
- * So ergeben Farbbild und Wolken überall genau 100 % – ohne milchigen Übergangsstreifen.
+ * Teilt die Wolkenschicht in den Echtfarben-Gebieten auf, damit dort keine Wolken doppelt liegen:
+ *  - Hauptbild: Deckkraft × (1 − Σ wᵢ) – immer sichtbar
+ *  - Innenbild je Gebiet i: Deckkraft × wᵢ – tagsüber nur so weit gezeigt, wie das Farbbild i fehlt
+ *    (nachts voll); wᵢ = Gewicht des Farbbildes i an dieser Stelle.
+ * So ergeben Farbbilder und Wolken überall genau 100 % – ohne milchigen Übergangsstreifen.
  */
-async function splitCutout(img: ImageData, rect: Rect, cut: Rect) {
+async function splitRegions(img: ImageData, rect: Rect, regions: ColorRegion[]): Promise<Inner[]> {
   const W = img.width;
   const H = img.height;
   const d = img.data;
-  const x0 = Math.max(0, Math.floor(((cut.west - rect.west) / (rect.east - rect.west)) * W));
-  const x1 = Math.min(W, Math.ceil(((cut.east - rect.west) / (rect.east - rect.west)) * W));
-  const y0 = Math.max(0, Math.floor(((rect.north - cut.north) / (rect.north - rect.south)) * H));
-  const y1 = Math.min(H, Math.ceil(((rect.north - cut.south) / (rect.north - rect.south)) * H));
-  const cw = x1 - x0;
-  const ch = y1 - y0;
-  const out = new ImageData(cw, ch);
-  const o = out.data;
-  for (let y = y0; y < y1; y++) {
-    const lat = rect.north - ((y + 0.5) / H) * (rect.north - rect.south);
-    for (let x = x0; x < x1; x++) {
-      const lon = rect.west + ((x + 0.5) / W) * (rect.east - rect.west);
-      const w = colorWeight(lat, lon, cut);
-      const i = (y * W + x) * 4;
-      const j = ((y - y0) * cw + (x - x0)) * 4;
-      o[j] = d[i];
-      o[j + 1] = d[i + 1];
-      o[j + 2] = d[i + 2];
-      o[j + 3] = d[i + 3] * w;
-      d[i + 3] = d[i + 3] * (1 - w);
-    }
-  }
-  const c = new OffscreenCanvas(cw, ch);
-  c.getContext('2d')!.putImageData(out, 0, 0);
-  const bitmap = await createImageBitmap(c, { imageOrientation: 'flipY' });
-  // Tatsächliches (auf Pixel gerundetes) Gebiet zurückgeben
   const px = (rect.east - rect.west) / W;
   const py = (rect.north - rect.south) / H;
-  return {
-    bitmap,
-    rect: { west: rect.west + x0 * px, east: rect.west + x1 * px, north: rect.north - y0 * py, south: rect.north - y1 * py },
-  };
+  const boxes = regions.map(({ rect: c }) => {
+    const x0 = Math.max(0, Math.floor((c.west - rect.west) / px));
+    const x1 = Math.min(W, Math.ceil((c.east - rect.west) / px));
+    const y0 = Math.max(0, Math.floor((rect.north - c.north) / py));
+    const y1 = Math.min(H, Math.ceil((rect.north - c.south) / py));
+    return { x0, x1, y0, y1, out: new ImageData(x1 - x0, y1 - y0) };
+  });
+  const yMin = Math.min(...boxes.map((b) => b.y0));
+  const yMax = Math.max(...boxes.map((b) => b.y1));
+  const xMin = Math.min(...boxes.map((b) => b.x0));
+  const xMax = Math.max(...boxes.map((b) => b.x1));
+  const w: number[] = [];
+  for (let y = yMin; y < yMax; y++) {
+    const lat = rect.north - (y + 0.5) * py;
+    for (let x = xMin; x < xMax; x++) {
+      const lon = rect.west + (x + 0.5) * px;
+      regionWeights(lat, lon, regions, w);
+      const i = (y * W + x) * 4;
+      const a = d[i + 3];
+      let sum = 0;
+      for (let k = 0; k < boxes.length; k++) {
+        const b = boxes[k];
+        if (x < b.x0 || x >= b.x1 || y < b.y0 || y >= b.y1) continue;
+        const o = b.out.data;
+        const j = ((y - b.y0) * (b.x1 - b.x0) + (x - b.x0)) * 4;
+        o[j] = d[i];
+        o[j + 1] = d[i + 1];
+        o[j + 2] = d[i + 2];
+        o[j + 3] = a * w[k];
+        sum += w[k];
+      }
+      d[i + 3] = a * (1 - sum);
+    }
+  }
+  return Promise.all(
+    boxes.map(async (b) => {
+      const c = new OffscreenCanvas(b.x1 - b.x0, b.y1 - b.y0);
+      c.getContext('2d')!.putImageData(b.out, 0, 0);
+      return {
+        bitmap: await createImageBitmap(c, { imageOrientation: 'flipY' }),
+        // Tatsächliches (auf Pixel gerundetes) Gebiet
+        rect: { west: rect.west + b.x0 * px, east: rect.west + b.x1 * px, north: rect.north - b.y0 * py, south: rect.north - b.y1 * py },
+      };
+    }),
+  );
+}
+
+/**
+ * Rechnet eine GOES-Vollscheibe (Blick des Satelliten aus 35.786 km Höhe) auf ein
+ * Längen-/Breitengrad-Raster um (Formeln aus dem GOES-R Product User Guide).
+ */
+function reprojectGeos(bmp: ImageBitmap, satLon: number, rect: Rect, W: number, H: number): ImageData {
+  const N = bmp.width;
+  const src = new OffscreenCanvas(N, N);
+  const sg = src.getContext('2d', { willReadFrequently: true })!;
+  sg.drawImage(bmp, 0, 0);
+  const s = sg.getImageData(0, 0, N, N).data;
+  const out = new ImageData(W, H);
+  const o = out.data;
+  const D = Math.PI / 180;
+  const req = 6378137;
+  const rpol = 6356752.31414;
+  const Hs = 42164160; // Abstand Satellit – Erdmittelpunkt
+  const e2 = 0.0066943800699785;
+  const ext = 0.151872; // halbe Bildbreite in Radiant (Vollscheibe)
+  for (let y = 0; y < H; y++) {
+    const lat = (rect.north - ((y + 0.5) / H) * (rect.north - rect.south)) * D;
+    const latc = Math.atan(((rpol * rpol) / (req * req)) * Math.tan(lat));
+    const rc = rpol / Math.sqrt(1 - e2 * Math.cos(latc) ** 2);
+    for (let x = 0; x < W; x++) {
+      const dl = (rect.west + ((x + 0.5) / W) * (rect.east - rect.west) - satLon) * D;
+      const sx = Hs - rc * Math.cos(latc) * Math.cos(dl);
+      const sy = -rc * Math.cos(latc) * Math.sin(dl);
+      const sz = rc * Math.sin(latc);
+      if (Hs * (Hs - sx) < sy * sy + ((req * req) / (rpol * rpol)) * sz * sz) continue; // Rückseite
+      const sxScan = Math.asin(-sy / Math.sqrt(sx * sx + sy * sy + sz * sz));
+      const syScan = Math.atan(sz / sx);
+      const col = Math.floor(((sxScan + ext) / (2 * ext)) * N);
+      const row = Math.floor(((ext - syScan) / (2 * ext)) * N);
+      if (col < 0 || col >= N || row < 0 || row >= N) continue;
+      const i = (row * N + col) * 4;
+      const j = (y * W + x) * 4;
+      o[j] = s[i];
+      o[j + 1] = s[i + 1];
+      o[j + 2] = s[i + 2];
+      o[j + 3] = 255;
+    }
+  }
+  return out;
 }
 
 const smoothstep = (a: number, b: number, x: number) => {
@@ -213,14 +285,15 @@ function toCloudLayer(d: Uint8ClampedArray, W: number, H: number) {
   }
 }
 
-/** Echtfarben: Rand weich ausblenden (gleiches Gewicht wie bei der Aufteilung der Wolken) */
-function fadeColorEdges(d: Uint8ClampedArray, W: number, H: number, rect: Rect) {
+/** Echtfarben: Deckkraft = Gewicht dieses Gebiets (gleiche Gewichtung wie bei der Aufteilung der Wolken) */
+function fadeColorEdges(d: Uint8ClampedArray, W: number, H: number, rect: Rect, regions: ColorRegion[], region: number) {
+  const w: number[] = [];
   for (let y = 0; y < H; y++) {
     const lat = rect.north - ((y + 0.5) / H) * (rect.north - rect.south);
     for (let x = 0, i = y * W * 4; x < W; x++, i += 4) {
       const lon = rect.west + ((x + 0.5) / W) * (rect.east - rect.west);
       const noData = Math.max(d[i], d[i + 1], d[i + 2]) < 4 ? 0 : 1;
-      d[i + 3] = 255 * colorWeight(lat, lon, rect) * noData;
+      d[i + 3] = 255 * regionWeights(lat, lon, regions, w)[region] * noData;
     }
   }
 }

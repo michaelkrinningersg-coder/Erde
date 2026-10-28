@@ -137,3 +137,37 @@ export function planetIcon(name: string, st: PlanetStyle) {
     `planet-${name}`,
   );
 }
+
+/** Haus-Symbol für „Zuhause“ (Stecknadel mit Haus) */
+export function homeIcon(size = 40) {
+  return canvas(
+    size,
+    (g, s) => {
+      // Stecknadel
+      g.fillStyle = '#ffd166';
+      g.strokeStyle = 'rgba(0,0,0,.7)';
+      g.lineWidth = 1.5;
+      g.beginPath();
+      g.arc(s / 2, s * 0.38, s * 0.34, Math.PI * 0.82, Math.PI * 0.18);
+      g.lineTo(s / 2, s * 0.98);
+      g.closePath();
+      g.fill();
+      g.stroke();
+      // Haus
+      g.fillStyle = '#1b2433';
+      const cx = s / 2;
+      const cy = s * 0.4;
+      const w = s * 0.34;
+      g.beginPath();
+      g.moveTo(cx - w * 0.62, cy);
+      g.lineTo(cx, cy - w * 0.62);
+      g.lineTo(cx + w * 0.62, cy);
+      g.closePath();
+      g.fill();
+      g.fillRect(cx - w * 0.42, cy - 1, w * 0.84, w * 0.62);
+      g.fillStyle = '#ffd166';
+      g.fillRect(cx - w * 0.1, cy + w * 0.22, w * 0.2, w * 0.4);
+    },
+    `home-${size}`,
+  );
+}

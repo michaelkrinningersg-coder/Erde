@@ -53,22 +53,40 @@ export const isoTime = (ms: number) => new Date(ms).toISOString().replace('.000Z
 /** Dateiname im Archiv, z. B. 20261028T1500Z.webp */
 export const archiveName = (ms: number) => `${isoTime(ms).replace(/[-:]/g, '').replace(/00Z$/, 'Z')}.webp`;
 
-type Rect = { west: number; south: number; east: number; north: number };
+import type { ColorRegion } from '../config';
+
 const D = Math.PI / 180;
 const smooth = (a: number, b: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
 };
+const FEATHER = 13; // Grad – breiter, weicher Übergang zum Rand des Ausschnitts
+
+/** Rohgewicht eines Echtfarben-Gebiets: weich zur Kante der Satellitensicht und zum Ausschnittsrand */
+function rawWeight(lat: number, lon: number, g: ColorRegion): number {
+  const r = g.rect;
+  if (lon <= r.west || lon >= r.east || lat <= r.south || lat >= r.north) return 0;
+  const disk = smooth(Math.cos(76 * D), Math.cos(64 * D), Math.cos(lat * D) * Math.cos((lon - g.satLon) * D));
+  const edge = smooth(0, FEATHER, Math.min(lat - r.south, r.north - lat, lon - r.west, r.east - lon));
+  return disk * edge;
+}
 
 /**
- * Wie stark das Echtfarbenbild an einer Stelle zählt (0…1): weich ausgeblendet zur Kante der
- * Satellitensicht (Meteosat steht über 0°/0°) und zum Rand des Ausschnitts.
- * Wird auch für die Infrarot-Wolken genutzt, die dort genau um diesen Anteil zurücktreten.
+ * Wie stark jedes Echtfarben-Gebiet an einer Stelle zählt (je 0…1, Summe ≤ 1).
+ * Überlappen sich Gebiete (Atlantik), teilen sie sich den Anteil; die Infrarot-Wolken
+ * treten dort genau um die Summe zurück → zusammen immer 100 %, kein doppelter Schleier.
  */
-export function colorWeight(lat: number, lon: number, rect: Rect): number {
-  const feather = 13; // Grad – breiter, weicher Übergang
-  if (lon <= rect.west || lon >= rect.east || lat <= rect.south || lat >= rect.north) return 0;
-  const disk = smooth(Math.cos(76 * D), Math.cos(64 * D), Math.cos(lat * D) * Math.cos(lon * D));
-  const edge = smooth(0, feather, Math.min(lat - rect.south, rect.north - lat, lon - rect.west, rect.east - lon));
-  return disk * edge;
+export function regionWeights(lat: number, lon: number, regions: ColorRegion[], out: number[] = []): number[] {
+  let sum = 0;
+  for (let i = 0; i < regions.length; i++) sum += out[i] = rawWeight(lat, lon, regions[i]);
+  if (sum > 1) for (let i = 0; i < regions.length; i++) out[i] /= sum;
+  return out;
+}
+
+/** Dateiname einer GOES-Vollscheibe beim NOAA-CDN, z. B. 20263011600_GOES19-ABI-FD-GEOCOLOR-1808x1808.jpg */
+export function noaaFileName(ms: number, product: string): string {
+  const d = new Date(ms);
+  const doy = Math.floor((ms - Date.UTC(d.getUTCFullYear(), 0, 1)) / 86_400_000) + 1;
+  const p2 = (n: number) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}${String(doy).padStart(3, '0')}${p2(d.getUTCHours())}${p2(d.getUTCMinutes())}_${product}.jpg`;
 }

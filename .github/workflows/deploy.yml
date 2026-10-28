@@ -47,6 +47,7 @@ jobs:
           path: |
             public/clouds
             public/color
+            public/color-america
             public/data/satellites.json
           key: data-${{ github.run_id }}
           restore-keys: data-
@@ -55,8 +56,12 @@ jobs:
         run: python scripts/fetch_imagery.py ir --max-new 60
         continue-on-error: true # Archiv bleibt nutzbar, die App fällt sonst auf EUMETSAT direkt zurück
 
-      - name: Neue Echtfarbenbilder holen (Europa/Afrika, stündlich, 7 Tage)
-        run: python scripts/fetch_imagery.py color --max-new 60
+      - name: Neue Echtfarbenbilder holen (Europa/Afrika, stündlich, 5 Tage)
+        run: python scripts/fetch_imagery.py color --max-new 40
+        continue-on-error: true
+
+      - name: Neue Echtfarbenbilder holen (Amerika, stündlich, 5 Tage)
+        run: pip install numpy==2.3.4 && python scripts/fetch_imagery.py america --max-new 40
         continue-on-error: true
 
       - name: Satelliten-Bahndaten aktualisieren (alle 6 h, CelesTrak bittet um sparsame Abfragen)
@@ -75,6 +80,7 @@ jobs:
           path: |
             public/clouds
             public/color
+            public/color-america
             public/data/satellites.json
           key: data-${{ github.run_id }}
 

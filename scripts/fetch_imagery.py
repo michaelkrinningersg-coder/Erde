@@ -6,6 +6,8 @@ Produkte:
          Multimission“, alle 3 h) → Graustufen-WebP in public/clouds/ (Grauwert 0 = keine Daten)
   color  Echtfarbenbild Europa/Afrika von Meteosat-12 („GeoColour“, stündlich) → Farb-WebP
          in public/color/
+  america  Echtfarbenbild Amerika von GOES-19 (NOAA „GeoColor“, stündlich). Kommt als Vollscheibe
+         in Satellitenperspektive und wird hier auf Längen-/Breitengrade umgerechnet → public/color-america/
 
 Bereits vorhandene Bilder werden übersprungen, ältere als --days gelöscht; dazu eine
 index.json mit der Liste aller Bilder. Der Browser lädt dann ein fertiges Bild
@@ -26,6 +28,7 @@ from pathlib import Path
 from PIL import Image
 
 WMS = "https://view.eumetsat.int/geoserver/wms"
+# Gesamtgröße auf GitHub Pages (max. 1 GB): Wolken 30 Tage ~120 MB, Echtfarben je 5 Tage ~200–300 MB
 # Kleine Kacheln (512 px) parallel sind beim EUMETSAT-Server am schnellsten (mehr als ~32 gleichzeitig → Fehler 500)
 PRODUCTS = {
     "ir": dict(
@@ -35,8 +38,13 @@ PRODUCTS = {
     ),
     "color": dict(
         layer="mtg_fd:rgb_geocolour", step_h=1, rect=(-48, -38, 64, 72),  # wie COLOR_RECT in src/config.ts
-        width=4096, height=4096, tiles=(8, 8), fmt="image/jpeg", gray=False, quality=80,
-        out="public/color", days=7,
+        width=4096, height=4096, tiles=(8, 8), fmt="image/jpeg", gray=False, quality=75,
+        out="public/color", days=5,
+    ),
+    "america": dict(
+        noaa="https://cdn.star.nesdis.noaa.gov/GOES19/ABI/FD/GEOCOLOR", sat_lon=-75.2, step_h=1,
+        rect=(-140, -60, -20, 62),  # wie COLOR_REGIONS[1] in src/config.ts
+        width=3072, height=3072, gray=False, quality=75, out="public/color-america", days=5,
     ),
 }
 P: dict = {}
@@ -60,6 +68,13 @@ def http_get(url: str, timeout: int = 120) -> bytes:
 
 
 def latest_available() -> dt.datetime:
+    if "noaa" in P:
+        html = http_get(P["noaa"] + "/").decode("utf-8", "replace")
+        stamps = re.findall(r'"(\d{11})_GOES19-ABI-FD-GEOCOLOR-5424x5424\.jpg"', html)
+        hours = [s for s in stamps if s.endswith("00")]
+        if not hours:
+            raise RuntimeError("Keine Bilder in der NOAA-Liste gefunden")
+        return dt.datetime.strptime(max(hours), "%Y%j%H%M").replace(tzinfo=dt.timezone.utc)
     xml = http_get(f"{WMS}?service=WMS&version=1.3.0&request=GetCapabilities").decode("utf-8", "replace")
     at = xml.find(f"<Name>{P['layer']}</Name>")
     m = re.search(r'<Dimension name="time"[^>]*>([^<]+)</Dimension>', xml[at:])
@@ -96,7 +111,38 @@ def fetch_tile(t: dt.datetime, ix: int, iy: int) -> tuple[int, int, Image.Image]
     return ix, iy, img
 
 
+def reproject_geos(fd: Image.Image) -> Image.Image:
+    """GOES-Vollscheibe → Längen-/Breitengrad-Raster (Formeln aus dem GOES-R Product User Guide)."""
+    import numpy as np
+
+    src = np.asarray(fd.convert("RGB"))
+    n = src.shape[0]
+    west, south, east, north = P["rect"]
+    w, h = P["width"], P["height"]
+    lon = np.radians(west + (np.arange(w) + 0.5) / w * (east - west) - P["sat_lon"])[None, :]
+    lat = np.radians(north - (np.arange(h) + 0.5) / h * (north - south))[:, None]
+    req, rpol, hs, e2, ext = 6378137.0, 6356752.31414, 42164160.0, 0.0066943800699785, 0.151872
+    latc = np.arctan((rpol**2 / req**2) * np.tan(lat))
+    rc = rpol / np.sqrt(1 - e2 * np.cos(latc) ** 2)
+    sx = hs - rc * np.cos(latc) * np.cos(lon)
+    sy = -rc * np.cos(latc) * np.sin(lon)
+    sz = np.broadcast_to(rc * np.sin(latc), sx.shape)
+    visible = hs * (hs - sx) >= sy**2 + (req**2 / rpol**2) * sz**2
+    x = np.arcsin(-sy / np.sqrt(sx**2 + sy**2 + sz**2))
+    y = np.arctan(sz / sx)
+    col = np.clip(((x + ext) / (2 * ext) * n).astype(np.int32), 0, n - 1)
+    row = np.clip(((ext - y) / (2 * ext) * n).astype(np.int32), 0, n - 1)
+    out = src[row, col]
+    out[~visible] = 0
+    return Image.fromarray(out, "RGB")
+
+
 def fetch_frame(t: dt.datetime) -> tuple[Image.Image, float]:
+    if "noaa" in P:
+        url = f"{P['noaa']}/{t.strftime('%Y%j%H%M')}_GOES19-ABI-FD-GEOCOLOR-5424x5424.jpg"
+        canvas = reproject_geos(Image.open(io.BytesIO(http_get(url, timeout=300))))
+        hist = canvas.convert("L").histogram()
+        return canvas, 1 - sum(hist[:2]) / (canvas.width * canvas.height)
     tx, ty = P["tiles"]
     tw, th = P["width"] // tx, P["height"] // ty
     canvas = Image.new("L" if P["gray"] else "RGB", (P["width"], P["height"]), 0)
