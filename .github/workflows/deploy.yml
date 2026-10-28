@@ -1,0 +1,89 @@
+# Baut die Erde-App und veröffentlicht sie auf GitHub Pages.
+# Läuft bei jedem Push und stündlich: holt dabei neue Wolkenbilder (EUMETSAT)
+# und alle 6 Stunden frische Satelliten-Bahndaten (CelesTrak).
+#
+# Einmalig nötig: Repository → Settings → Pages → Source: „GitHub Actions“.
+name: Erde bauen & veröffentlichen
+
+on:
+  push:
+    branches: [main, ccr-beed262d-leye1s]
+  schedule:
+    - cron: '23 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - run: npm ci
+      - run: pip install pillow==11.3.0
+
+      # Wolkenarchiv und Bahndaten zwischen den Läufen aufbewahren (nicht im Git-Verlauf)
+      - name: Daten-Archiv wiederherstellen
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            public/clouds
+            public/data/satellites.json
+          key: data-${{ github.run_id }}
+          restore-keys: data-
+
+      - name: Neue Wolkenbilder holen
+        run: python scripts/fetch_clouds.py --days 30 --max-new 60
+        continue-on-error: true # Archiv bleibt nutzbar, die App fällt sonst auf EUMETSAT direkt zurück
+
+      - name: Satelliten-Bahndaten aktualisieren (alle 6 h, CelesTrak bittet um sparsame Abfragen)
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ] || [ $(( $(date -u +%-H) % 6 )) -eq 0 ]; then
+            npm run fetch:sats
+          else
+            echo "Diese Stunde nicht – vorhandene Bahndaten bleiben."
+          fi
+        continue-on-error: true # sonst bleibt der vorhandene Stand
+
+      - name: Daten-Archiv speichern
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            public/clouds
+            public/data/satellites.json
+          key: data-${{ github.run_id }}
+
+      - run: npm run build
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

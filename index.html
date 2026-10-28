@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Erde</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌍</text></svg>" />
+    <script>
+      // Cesium lädt Worker und Texturen relativ zu diesem Pfad
+      window.CESIUM_BASE_URL = './cesium/';
+    </script>
+  </head>
+  <body>
+    <div id="globe"></div>
+
+    <aside id="panel" class="glass">
+      <header>
+        <h1>🌍 Erde</h1>
+        <button id="panel-toggle" class="icon-btn" title="Bedienfeld ein-/ausklappen">☰</button>
+      </header>
+      <div id="panel-body"></div>
+    </aside>
+
+    <div id="status" class="glass"></div>
+    <div id="focus-chip" class="glass hidden"></div>
+
+    <div id="timebar" class="glass">
+      <button data-speed="-3600" title="1 Stunde pro Sekunde zurück">⏪</button>
+      <button data-speed="0" title="Anhalten">⏸</button>
+      <button data-speed="1" title="Echtzeit">▶</button>
+      <button data-speed="600" title="10 Minuten pro Sekunde">⏩</button>
+      <button data-speed="3600" title="1 Stunde pro Sekunde">⏩⏩</button>
+      <button id="btn-live" title="Zurück zur aktuellen Zeit">Jetzt</button>
+      <label class="range">Zurück:
+        <select id="range-select">
+          <option value="1">1 Tag</option>
+          <option value="7" selected>7 Tage</option>
+          <option value="14">14 Tage</option>
+          <option value="30">30 Tage</option>
+        </select>
+      </label>
+      <span id="clock-label"></span>
+    </div>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
