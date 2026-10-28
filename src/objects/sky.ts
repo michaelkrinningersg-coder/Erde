@@ -4,6 +4,7 @@ import {
   Cartesian2,
   Cartesian3,
   Color,
+  ConstantProperty,
   DistanceDisplayCondition,
   Entity,
   JulianDate,
@@ -166,6 +167,16 @@ export class Sky {
     });
     this.viewer.entities.add(entity);
     return { id: 'jwst', name: 'James-Webb-Teleskop', entity };
+  }
+
+  /** Größe der Planeten-Marker (1 = Originalgröße der Symbole); Beschriftung rückt mit */
+  setPlanetScale(scale: number) {
+    for (const p of PLANETS) {
+      const e = this.planets.find((it) => it.id === p.id)!.entity;
+      e.billboard!.scale = new ConstantProperty(scale);
+      const off = Math.round(p.style.size * (p.style.ring ? 0.75 : 0.65) * scale) + 2;
+      e.label!.pixelOffset = new ConstantProperty(new Cartesian2(0, off));
+    }
   }
 
   set showSunDisc(v: boolean) {

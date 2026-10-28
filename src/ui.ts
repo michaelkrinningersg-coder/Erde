@@ -114,6 +114,31 @@ export function buildUi(d: UiDeps) {
     }).row,
   );
 
+  // Regler für die Planetengröße (wird im Browser gemerkt)
+  function planetSizeRow() {
+    let initial = 0.6;
+    try {
+      initial = Number(localStorage.getItem('erde.planetScale')) || initial;
+    } catch {
+      /* ohne Speicher */
+    }
+    const value = h('span', { class: 'count' });
+    const slider = h('input', { type: 'range', min: '0.25', max: '1.5', step: '0.05', value: String(initial) });
+    const apply = () => {
+      const v = Number(slider.value);
+      sky.setPlanetScale(v);
+      value.textContent = `${Math.round(v * 100)} %`;
+      try {
+        localStorage.setItem('erde.planetScale', String(v));
+      } catch {
+        /* ohne Speicher */
+      }
+    };
+    slider.addEventListener('input', apply);
+    apply();
+    return h('label', { class: 'row slider' }, h('span', { textContent: 'Planetengröße' }), slider, value);
+  }
+
   // ── Himmel ────────────────────────────────────────────────────────────
   const moonBtn = h('button', { class: 'small', textContent: '🚀 hinfliegen', title: 'Zum Mond fliegen' });
   moonBtn.addEventListener('click', (e) => {
@@ -132,6 +157,7 @@ export function buildUi(d: UiDeps) {
       (v) => sky.planets.forEach((p) => (p.entity.show = v)),
       sky.planets.map((p) => ({ label: p.name, checked: true, onChange: (v: boolean) => (p.entity.show = v) })),
     ),
+    planetSizeRow(),
     toggle('James-Webb-Teleskop', true, (v) => (sky.jwst.entity.show = v)).row,
     h('p', { class: 'hint', textContent: 'Planeten: Richtung stimmt, sie sind aber größer und näher gezeichnet, damit man sie sieht.' }),
   );

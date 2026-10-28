@@ -196,6 +196,15 @@ details[open] > summary::before {
   flex: none;
 }
 
+.row.slider input[type='range'] {
+  flex: 1;
+  accent-color: var(--accent);
+}
+
+.row.slider > span:first-of-type {
+  flex: none;
+}
+
 .lbl {
   width: 44px;
   flex: none !important;
