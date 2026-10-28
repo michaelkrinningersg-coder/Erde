@@ -2,8 +2,8 @@ import 'cesium/Build/Cesium/Widgets/widgets.css';
 import './style.css';
 import { JulianDate, TimeInterval, Transforms } from 'cesium';
 import { CameraControl } from './camera';
-import { CloudLayer } from './clouds/cloudLayer';
-import { TIME } from './config';
+import { TimeImageLayer } from './clouds/timeLayer';
+import { CLOUDS, COLOR_EUROPE, TIME } from './config';
 import { createViewer } from './globe';
 import { Flights } from './objects/flights';
 import { Satellites } from './objects/satellites';
@@ -24,10 +24,22 @@ async function main() {
   ).catch(() => undefined);
 
   const time = new TimeControl(viewer);
-  const clouds = new CloudLayer(viewer);
-  clouds.setEarliest(JulianDate.toDate(viewer.clock.startTime).getTime());
-  time.onRangeChange = (start) => clouds.setEarliest(JulianDate.toDate(start).getTime());
-  viewer.clock.onTick.addEventListener((clock) => clouds.update(clock.currentTime, clock.multiplier));
+  const clouds = new TimeImageLayer(viewer, CLOUDS);
+  const color = new TimeImageLayer(viewer, COLOR_EUROPE);
+  const setEarliest = (start: JulianDate) => {
+    const ms = JulianDate.toDate(start).getTime();
+    clouds.setEarliest(ms);
+    color.setEarliest(ms);
+  };
+  setEarliest(viewer.clock.startTime);
+  time.onRangeChange = setEarliest;
+  viewer.clock.onTick.addEventListener((clock) => {
+    clouds.update(clock.currentTime, clock.multiplier);
+    // Echtfarbenbild (~2–3 km) beim nahen Reinzoomen ausblenden → darunter die scharfe 10-m-Karte
+    const h = viewer.camera.positionCartographic.height;
+    color.alphaScale = Math.min(1, Math.max(0, (h - 150e3) / (700e3 - 150e3)));
+    color.update(clock.currentTime, clock.multiplier);
+  });
 
   const sky = new Sky(viewer);
   const satellites = new Satellites(viewer);
@@ -41,10 +53,10 @@ async function main() {
 
   viewer.selectedEntityChanged.addEventListener((e) => satellites.highlight(e));
 
-  buildUi({ viewer, layers, clouds, sky, satellites, flights, camera, time });
+  buildUi({ viewer, layers, clouds, color, sky, satellites, flights, camera, time });
 
   // Für Experimente in der Browser-Konsole
-  Object.assign(window, { erde: { viewer, clouds, sky, satellites, flights, camera, time } });
+  Object.assign(window, { erde: { viewer, clouds, color, sky, satellites, flights, camera, time } });
 }
 
 void main();

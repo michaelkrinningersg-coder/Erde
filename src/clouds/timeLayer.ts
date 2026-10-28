@@ -4,40 +4,36 @@ import {
   GeographicTilingScheme,
   ImageryLayer,
   JulianDate,
+  Rectangle,
   type ImageryProvider,
   type Viewer,
 } from 'cesium';
-import { CLOUDS } from '../config';
-import { cloudTileUrls, isoTime, type CloudSource } from './cloudUrls';
-import type { CloudRequest, CloudResponse } from './cloudWorker';
+import type { TimeLayerSpec } from '../config';
+import { archiveName, isoTime, wmsTileUrls, type ImageSource } from './cloudUrls';
+import type { ImageRequest, ImageResponse } from './cloudWorker';
 
-const STEP = CLOUDS.stepHours * 3600_000;
-const MAX_DECODED = 5; // so viele fertige Wolkenbilder bleiben im Speicher
+const MAX_DECODED = 5; // so viele fertige Bilder bleiben je Ebene im Speicher
 const MAX_PARALLEL_BUILDS = 2;
 const WARM_FRAMES = 8; // so viele Zeitschritte in Abspielrichtung werden vorab in den Browser-Cache geladen
 
-interface CloudFrame {
-  halves: [ImageBitmap, ImageBitmap];
-}
-
 interface FrameEntry {
-  state: 'queued' | 'loading' | 'ready' | 'failed';
-  frame?: CloudFrame;
+  state: 'loading' | 'ready' | 'failed';
+  parts?: ImageBitmap[];
   lastUsed: number;
   failedAt?: number;
 }
 
-export interface CloudStatus {
+export interface LayerStatus {
   shownFrame?: number; // ms
   latest?: number; // ms
   loading: number;
   error?: string;
 }
 
-/** Liefert unser fertiges Bild direkt an Cesium (zwei Kacheln: West- und Osthalbkugel). */
+/** Liefert unser fertiges Bild direkt an Cesium (in Spalten geteilt). */
 class BitmapImageryProvider {
-  readonly tilingScheme = new GeographicTilingScheme();
-  readonly rectangle = this.tilingScheme.rectangle;
+  readonly tilingScheme: GeographicTilingScheme;
+  readonly rectangle: Rectangle;
   readonly tileWidth: number;
   readonly tileHeight: number;
   readonly maximumLevel = 0;
@@ -47,40 +43,54 @@ class BitmapImageryProvider {
   readonly hasAlphaChannel = true;
   readonly proxy = undefined;
   constructor(
-    private readonly halves: [ImageBitmap, ImageBitmap],
+    private readonly parts: ImageBitmap[],
+    rect: Rectangle,
     readonly credit: Credit,
   ) {
-    this.tileWidth = halves[0].width;
-    this.tileHeight = halves[0].height;
+    this.tilingScheme = new GeographicTilingScheme({ rectangle: rect, numberOfLevelZeroTilesX: parts.length, numberOfLevelZeroTilesY: 1 });
+    this.rectangle = rect;
+    this.tileWidth = parts[0].width;
+    this.tileHeight = parts[0].height;
   }
   getTileCredits() {
     return [];
   }
   requestImage(x: number) {
-    return Promise.resolve(this.halves[x]);
+    return Promise.resolve(this.parts[x]);
   }
   pickFeatures() {
     return undefined;
   }
 }
 
-/** Wählt eine Texturgröße, die das Gerät flüssig schafft. */
-function pickTextureWidth(viewer: Viewer): number {
+/** Handys und schwache Geräte bekommen die halbe Texturgröße. */
+function isLowEnd(viewer: Viewer): boolean {
   const ctx = (viewer.scene as unknown as { context: { _gl: WebGLRenderingContext } }).context;
   const maxTex = ctx._gl.getParameter(ctx._gl.MAX_TEXTURE_SIZE) as number;
   const mobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
-  if (mobile || maxTex < 4096 || (navigator.hardwareConcurrency ?? 8) <= 4) return 2048;
-  return CLOUDS.textureWidth;
+  return mobile || maxTex < 4096 || (navigator.hardwareConcurrency ?? 8) <= 4;
 }
 
-export class CloudLayer {
+/** Reihenfolge aller zeitabhängigen Ebenen auf dem Globus (Ebene, dann Zeit) */
+const stackKey = new WeakMap<ImageryLayer, number>();
+
+/**
+ * Eine zeitabhängige Bildebene (Wolken weltweit oder Echtfarben Europa):
+ * wählt passend zur Simulationszeit zwei Bilder, lädt sie (Archiv oder EUMETSAT direkt),
+ * blendet weich über und lädt in Abspielrichtung vor.
+ */
+export class TimeImageLayer {
   private readonly worker = new Worker(new URL('./cloudWorker.ts', import.meta.url), { type: 'module' });
-  private readonly source: CloudSource;
-  private readonly credit = new Credit(CLOUDS.credit);
+  private readonly source: ImageSource;
+  private readonly step: number;
+  private readonly rect: Rectangle;
+  private readonly credit: Credit;
   private readonly entries = new Map<number, FrameEntry>();
   private readonly layers = new Map<number, ImageryLayer>();
-  private readonly callbacks = new Map<number, (r: CloudResponse) => void>();
+  private readonly callbacks = new Map<number, (r: ImageResponse) => void>();
   private readonly warmed = new Set<number>();
+  /** Bilder im eigenen Archiv (GitHub Pages), Zeit in ms */
+  private readonly archive = new Set<number>();
   private warming = 0;
   private nextId = 1;
   private building = 0;
@@ -90,46 +100,44 @@ export class CloudLayer {
   private lastError?: string;
   private shownFrame?: number;
   private visible = true;
-  /** Bilder im eigenen Archiv (GitHub Pages), Zeit in ms */
-  private readonly archive = new Set<number>();
+  /** Zusätzlicher Faktor für die Deckkraft (z. B. Ausblenden beim nahen Reinzoomen) */
+  alphaScale = 1;
 
-  onStatus?: (s: CloudStatus) => void;
+  onStatus?: (s: LayerStatus) => void;
 
-  constructor(private readonly viewer: Viewer) {
-    const width = pickTextureWidth(viewer);
-    this.source = { wms: CLOUDS.wms, layer: CLOUDS.layer, width, tile: width / CLOUDS.tilesAcross };
-    this.latest = Math.floor((Date.now() - CLOUDS.typicalLatencyHours * 3600_000) / STEP) * STEP;
-    this.worker.onmessage = (ev: MessageEvent<CloudResponse>) => {
+  constructor(
+    private readonly viewer: Viewer,
+    private readonly spec: TimeLayerSpec,
+  ) {
+    const scale = isLowEnd(viewer) ? 0.5 : 1;
+    this.source = {
+      wms: spec.wms,
+      layer: spec.layer,
+      format: spec.format,
+      rect: spec.rect,
+      width: spec.width * scale,
+      height: spec.height * scale,
+      tilesX: spec.tilesX,
+      tilesY: spec.tilesY,
+    };
+    this.step = spec.stepMinutes * 60_000;
+    this.rect = Rectangle.fromDegrees(spec.rect.west, spec.rect.south, spec.rect.east, spec.rect.north);
+    this.credit = new Credit(spec.credit);
+    this.latest = this.floor(Date.now() - spec.typicalLatencyMinutes * 60_000);
+    this.worker.onmessage = (ev: MessageEvent<ImageResponse>) => {
       this.callbacks.get(ev.data.id)?.(ev.data);
       this.callbacks.delete(ev.data.id);
     };
-    void this.refreshLatest();
-    void this.loadArchiveIndex();
-    setInterval(() => {
+    const refresh = () => {
       void this.refreshLatest();
       void this.loadArchiveIndex();
-    }, 20 * 60_000);
+    };
+    refresh();
+    setInterval(refresh, 20 * 60_000);
   }
 
-  /** Liste der vorab gespeicherten Wolkenbilder (wird stündlich von GitHub Actions erneuert) */
-  private async loadArchiveIndex() {
-    try {
-      const res = await fetch(`${CLOUDS.archive}/index.json`, { cache: 'no-cache' });
-      if (!res.ok) return;
-      const idx: { frames: string[] } = await res.json();
-      for (const f of idx.frames) this.archive.add(Date.parse(f));
-      const newest = Math.max(...this.archive);
-      if (newest > this.latest) this.latest = newest;
-    } catch {
-      /* kein Archiv (z. B. lokale Entwicklung) → direkt von EUMETSAT */
-    }
-  }
-
-  private archiveUrl(f: number) {
-    if (!this.archive.has(f)) return undefined;
-    const name = isoTime(f).replace(/[-:]/g, '').replace(/00Z$/, 'Z');
-    // Absolute Adresse: im Worker würden relative Pfade relativ zum Worker-Skript aufgelöst
-    return new URL(`${CLOUDS.archive}/${name}.webp`, document.baseURI).href;
+  private floor(ms: number) {
+    return Math.floor(ms / this.step) * this.step;
   }
 
   get show() {
@@ -137,43 +145,65 @@ export class CloudLayer {
   }
   set show(v: boolean) {
     this.visible = v;
-    for (const l of this.layers.values()) l.show = v;
+    for (const l of this.layers.values()) l.show = v && this.alphaScale > 0;
   }
 
   /** Frühestes Bild, das geladen werden darf (Rückspulgrenze) */
   setEarliest(ms: number) {
-    this.earliest = Math.floor(ms / STEP) * STEP;
+    this.earliest = this.floor(ms);
   }
 
-  /** Fragt beim Dienst nach, welches das neueste verfügbare Wolkenbild ist. */
+  /** Liste der vorab gespeicherten Bilder (wird stündlich von GitHub Actions erneuert) */
+  private async loadArchiveIndex() {
+    try {
+      const res = await fetch(`${this.spec.archive}/index.json`, { cache: 'no-cache' });
+      if (!res.ok) return;
+      const idx: { frames: string[] } = await res.json();
+      for (const f of idx.frames) this.archive.add(Date.parse(f));
+      if (this.archive.size) this.latest = Math.max(this.latest, ...this.archive);
+    } catch {
+      /* kein Archiv (z. B. lokale Entwicklung) → direkt von EUMETSAT */
+    }
+  }
+
+  private archiveUrl(f: number) {
+    if (!this.archive.has(f)) return undefined;
+    // Absolute Adresse: im Worker würden relative Pfade relativ zum Worker-Skript aufgelöst
+    return new URL(`${this.spec.archive}/${archiveName(f)}`, document.baseURI).href;
+  }
+
+  /** Fragt beim Dienst nach, welches das neueste verfügbare Bild ist. */
   private async refreshLatest() {
     try {
-      const res = await fetch(`${CLOUDS.wms}?service=WMS&version=1.3.0&request=GetCapabilities`);
+      const res = await fetch(`${this.spec.wms}?service=WMS&version=1.3.0&request=GetCapabilities`);
       const xml = await res.text();
-      const at = xml.indexOf(`<Name>${CLOUDS.layer}</Name>`);
+      const at = xml.indexOf(`<Name>${this.spec.layer}</Name>`);
       const dim = /<Dimension name="time"[^>]*>([^<]+)<\/Dimension>/.exec(xml.slice(at));
       const lastInterval = dim?.[1].trim().split(',').pop() ?? '';
       const end = Date.parse(lastInterval.split('/')[1] ?? lastInterval);
-      if (at >= 0 && Number.isFinite(end)) this.latest = Math.max(this.latest, Math.floor(end / STEP) * STEP);
+      if (at >= 0 && Number.isFinite(end)) this.latest = Math.max(this.latest, this.floor(end));
     } catch {
       /* Schätzwert bleibt */
     }
   }
 
-  /** Jedes Bild der Simulation: passende Wolkenbilder wählen, laden und überblenden. */
+  /** Jedes Bild der Simulation: passende Bilder wählen, laden und überblenden. */
   update(time: JulianDate, multiplier: number) {
+    const STEP = this.step;
     const t = JulianDate.toDate(time).getTime();
     const tc = Math.min(Math.max(t, this.earliest), this.latest);
-    const f0 = Math.floor(tc / STEP) * STEP;
+    const f0 = this.floor(tc);
     const f1 = Math.min(f0 + STEP, this.latest);
     const frac = f1 > f0 ? (tc - f0) / STEP : 0;
     const dir = multiplier < 0 ? -1 : 1;
 
     // Benötigt: aktuelle zwei Bilder, dann das nächste in Abspielrichtung
     const ahead = dir > 0 ? f1 + STEP : f0 - STEP;
-    this.wanted = [f0, f1, ahead].filter((f) => f >= this.earliest && f <= this.latest);
-    this.pump();
-    this.warmCache(dir > 0 ? f1 : f0, dir);
+    if (this.visible) {
+      this.wanted = [f0, f1, ahead].filter((f) => f >= this.earliest && f <= this.latest);
+      this.pump();
+      this.warmCache(dir > 0 ? f1 : f0, dir);
+    }
 
     const ready = (f: number) => this.entries.get(f)?.state === 'ready';
     let desired: [number, number][];
@@ -188,6 +218,7 @@ export class CloudLayer {
     else desired = []; // noch nichts da → bisherige Anzeige stehen lassen
 
     if (desired.length) this.applyLayers(desired);
+    else for (const l of this.layers.values()) l.show = this.visible && this.alphaScale > 0;
     this.onStatus?.({
       shownFrame: this.shownFrame,
       latest: this.latest,
@@ -208,18 +239,25 @@ export class CloudLayer {
       let layer = this.layers.get(f);
       if (!layer) {
         const entry = this.entries.get(f)!;
-        const provider = new BitmapImageryProvider(entry.frame!.halves, this.credit);
-        layer = new ImageryLayer(provider as unknown as ImageryProvider, { alpha });
-        layer.show = this.visible;
-        this.viewer.imageryLayers.add(layer);
+        const provider = new BitmapImageryProvider(entry.parts!, this.rect, this.credit);
+        layer = new ImageryLayer(provider as unknown as ImageryProvider, { alpha, nightAlpha: this.spec.nightAlpha });
+        this.insertOrdered(layer, this.spec.zIndex * 1e13 + f);
         this.layers.set(f, layer);
       }
-      layer.alpha = alpha;
+      layer.alpha = alpha * this.alphaScale;
+      layer.show = this.visible && this.alphaScale > 0;
       this.entries.get(f)!.lastUsed = performance.now();
     }
-    // Späteres Bild immer oben
-    for (const [f] of [...desired].sort((a, b) => a[0] - b[0])) this.viewer.imageryLayers.raiseToTop(this.layers.get(f)!);
     this.shownFrame = desired.reduce((a, b) => (b[1] >= a[1] ? b : a))[0];
+  }
+
+  /** An der richtigen Stelle einfügen: Grundkarten unten, dann nach Ebene und Zeit sortiert */
+  private insertOrdered(layer: ImageryLayer, key: number) {
+    const coll = this.viewer.imageryLayers;
+    let index = 0;
+    for (let i = 0; i < coll.length; i++) if ((stackKey.get(coll.get(i)) ?? -Infinity) < key) index = i + 1;
+    stackKey.set(layer, key);
+    coll.add(layer, index);
   }
 
   /** Startet Ladeaufträge für benötigte Bilder (begrenzt parallel). */
@@ -238,21 +276,28 @@ export class CloudLayer {
     this.entries.set(f, entry);
     this.building++;
     const id = this.nextId++;
-    const res = await new Promise<CloudResponse>((resolve) => {
+    const res = await new Promise<ImageResponse>((resolve) => {
       this.callbacks.set(id, resolve);
-      this.worker.postMessage({ ...this.source, id, time: isoTime(f), archiveUrl: this.archiveUrl(f) } satisfies CloudRequest);
+      this.worker.postMessage({
+        ...this.source,
+        id,
+        time: isoTime(f),
+        mode: this.spec.mode,
+        splitX: this.spec.splitX,
+        archiveUrl: this.archiveUrl(f),
+      } satisfies ImageRequest);
     });
     this.building--;
     if (res.ok) {
       entry.state = 'ready';
-      entry.frame = { halves: [res.left, res.right] };
+      entry.parts = res.parts;
       this.lastError = undefined;
       this.evict();
     } else {
       entry.state = 'failed';
       entry.failedAt = performance.now();
       this.lastError = res.error;
-      console.warn('Wolkenbild fehlgeschlagen', isoTime(f), res.error);
+      console.warn(`${this.spec.name}: Bild fehlgeschlagen`, isoTime(f), res.error);
     }
     this.pump();
   }
@@ -264,7 +309,7 @@ export class CloudLayer {
     if (excess <= 0) return;
     ready.sort((a, b) => a[1].lastUsed - b[1].lastUsed);
     for (const [f, e] of ready.slice(0, excess)) {
-      e.frame?.halves.forEach((b) => b.close());
+      e.parts?.forEach((b) => b.close());
       this.entries.delete(f);
     }
   }
@@ -273,11 +318,11 @@ export class CloudLayer {
   private warmCache(from: number, dir: number) {
     if (this.warming > 0) return;
     for (let k = 1; k <= WARM_FRAMES; k++) {
-      const f = from + dir * k * STEP;
+      const f = from + dir * k * this.step;
       if (f < this.earliest || f > this.latest || this.warmed.has(f)) continue;
       this.warmed.add(f);
       const archived = this.archiveUrl(f);
-      const urls = archived ? [archived] : cloudTileUrls(this.source, isoTime(f)).map((u) => u.url);
+      const urls = archived ? [archived] : wmsTileUrls(this.source, isoTime(f)).map((u) => u.url);
       this.warming++;
       void Promise.allSettled(
         urls.map((u) => fetch(u, { priority: 'low' } as RequestInit).then((r) => r.blob())),

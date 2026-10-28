@@ -1,5 +1,5 @@
 # Baut die Erde-App und veröffentlicht sie auf GitHub Pages.
-# Läuft bei jedem Push und stündlich: holt dabei neue Wolkenbilder (EUMETSAT)
+# Läuft bei jedem Push und stündlich: holt dabei neue Wolken- und Echtfarbenbilder (EUMETSAT)
 # und alle 6 Stunden frische Satelliten-Bahndaten (CelesTrak).
 #
 # Einmalig nötig: Repository → Settings → Pages → Source: „GitHub Actions“.
@@ -46,13 +46,18 @@ jobs:
         with:
           path: |
             public/clouds
+            public/color
             public/data/satellites.json
           key: data-${{ github.run_id }}
           restore-keys: data-
 
-      - name: Neue Wolkenbilder holen
-        run: python scripts/fetch_clouds.py --days 30 --max-new 60
+      - name: Neue Wolkenbilder holen (weltweit, alle 3 h, 30 Tage)
+        run: python scripts/fetch_imagery.py ir --max-new 60
         continue-on-error: true # Archiv bleibt nutzbar, die App fällt sonst auf EUMETSAT direkt zurück
+
+      - name: Neue Echtfarbenbilder holen (Europa/Afrika, stündlich, 7 Tage)
+        run: python scripts/fetch_imagery.py color --max-new 60
+        continue-on-error: true
 
       - name: Satelliten-Bahndaten aktualisieren (alle 6 h, CelesTrak bittet um sparsame Abfragen)
         run: |
@@ -69,6 +74,7 @@ jobs:
         with:
           path: |
             public/clouds
+            public/color
             public/data/satellites.json
           key: data-${{ github.run_id }}
 

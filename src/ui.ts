@@ -1,7 +1,7 @@
 import { JulianDate, type Viewer } from 'cesium';
 import type { CameraControl } from './camera';
 import { FOCUS_TARGETS } from './camera';
-import type { CloudLayer, CloudStatus } from './clouds/cloudLayer';
+import type { LayerStatus, TimeImageLayer } from './clouds/timeLayer';
 import type { GlobeLayers } from './globe';
 import { AIRPORTS, type Flights } from './objects/flights';
 import type { Satellites } from './objects/satellites';
@@ -80,7 +80,8 @@ function group(
 export interface UiDeps {
   viewer: Viewer;
   layers: GlobeLayers;
-  clouds: CloudLayer;
+  clouds: TimeImageLayer;
+  color: TimeImageLayer;
   sky: Sky;
   satellites: Satellites;
   flights: Flights;
@@ -89,7 +90,7 @@ export interface UiDeps {
 }
 
 export function buildUi(d: UiDeps) {
-  const { viewer, layers, clouds, sky, satellites, flights, camera, time } = d;
+  const { viewer, layers, clouds, color, sky, satellites, flights, camera, time } = d;
   const body = document.getElementById('panel-body')!;
   const scene = viewer.scene;
 
@@ -98,6 +99,7 @@ export function buildUi(d: UiDeps) {
     '🌍 Erde',
     true,
     toggle('Wolken (echte Satellitenbilder)', true, (v) => (clouds.show = v)).row,
+    toggle('Echtfarben Europa & Afrika', true, (v) => (color.show = v)).row,
     toggle('Stadtlichter bei Nacht', true, (v) => (layers.night.show = v)).row,
     toggle('Tag & Nacht (Sonnenlicht)', true, (v) => {
       scene.globe.enableLighting = v;
@@ -270,9 +272,20 @@ export function buildUi(d: UiDeps) {
   // ── Statuszeile ───────────────────────────────────────────────────────
   const status = document.getElementById('status')!;
   const clockLabel = document.getElementById('clock-label')!;
-  let cloudStatus: CloudStatus = { loading: 0 };
+  let cloudStatus: LayerStatus = { loading: 0 };
+  let colorStatus: LayerStatus = { loading: 0 };
   clouds.onStatus = (s) => (cloudStatus = s);
+  color.onStatus = (s) => (colorStatus = s);
   const speedButtons = document.querySelectorAll<HTMLButtonElement>('#timebar [data-speed]');
+  const describe = (icon: string, label: string, st: LayerStatus, live: boolean) => {
+    if (!st.shownFrame) return `${icon} ${label} wird geladen …${st.error ? ' <small>(Dienst antwortet nicht – neuer Versuch läuft)</small>' : ''}`;
+    const shown = new Date(st.shownFrame);
+    const ageMin = Math.round((Date.now() - shown.getTime()) / 60_000);
+    let txt = `${icon} ${label} ${shown.toLocaleString('de-DE', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`;
+    if (live || ageMin < 360) txt += ageMin < 90 ? ` (vor ${ageMin} Min.)` : ` (vor ${Math.round(ageMin / 60)} Std.)`;
+    if (st.loading > 0) txt += ' <span class="spin">⟳</span>';
+    return txt;
+  };
   setInterval(() => {
     const live = time.isLive();
     clockLabel.innerHTML = `${time.label()} ${live ? '<b class="live">LIVE</b>' : ''}`;
@@ -281,15 +294,10 @@ export function buildUi(d: UiDeps) {
       const s = Number(b.dataset.speed);
       b.classList.toggle('on', s === 0 ? !clock.shouldAnimate : clock.shouldAnimate && clock.multiplier === s);
     }
-    let txt = '☁️ ';
-    if (cloudStatus.shownFrame) {
-      const shown = new Date(cloudStatus.shownFrame);
-      const ageH = Math.round((Date.now() - shown.getTime()) / 3600_000);
-      txt += `Wolkenbild ${shown.toLocaleString('de-DE', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`;
-      if (live || ageH < 6) txt += ` (vor ${ageH} Std.)`;
-    } else txt += 'Wolken werden geladen …';
-    if (cloudStatus.loading > 0 && cloudStatus.shownFrame) txt += ' <span class="spin">⟳</span>';
-    if (cloudStatus.error && !cloudStatus.shownFrame) txt += `<br><small>Wolkendienst antwortet nicht – neuer Versuch läuft</small>`;
+    const lines = [];
+    if (clouds.show) lines.push(describe('☁️', 'Wolken', cloudStatus, live));
+    if (color.show) lines.push(describe('🎨', 'Echtfarben', colorStatus, live));
+    const txt = lines.join('<br>') || '—';
     status.innerHTML = txt;
   }, 500);
 }

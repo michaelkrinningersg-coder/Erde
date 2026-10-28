@@ -51,6 +51,15 @@ bauen), Unreal (schwer, Desktop-only).
 - Übergang zwischen zwei Zeitpunkten wird weich überblendet; die nächsten Bilder in Abspielrichtung
   werden vorab geladen.
 
+### Echtfarben Europa & Afrika – Meteosat-12 „GeoColour“
+
+- Echtes Farbbild vom Tag (Wolken, Sand, Schnee, Rauch), Ausschnitt 36° W – 64° O, 38° S – 72° N.
+- Stündlich im Archiv (7 Tage, ~1,9 MB pro Bild, 4096 × 4096 px ≈ 2–3 km), nur auf der Tagseite.
+- Rand weich ausgeblendet (zum Ausschnittsrand und zur Kante der Satellitensicht), darunter
+  das weltweite Infrarot-Wolkenbild → keine harte Kante.
+- Beim nahen Reinzoomen (unter ~700 km Höhe) blendet es aus, damit die 10-m-Karte sichtbar wird.
+- Feinschliff offen: Im Übergangsstreifen liegen Farb- und Infrarot-Wolken übereinander (leicht milchig).
+
 ### Erdoberfläche
 
 - Tag: **Sentinel-2 cloudless 2025** (EOX, 10 m Auflösung, CC BY-NC-SA 4.0 – privat erlaubt)
@@ -88,7 +97,8 @@ immer Daten hat. JWST hat keine Bahndaten (steht am L2) → Näherung „1,5 Mio
 | M4 | Sonne, Mond (zoombar), Planeten-Marker, James Webb | ✅ |
 | M5 | Fokuspunkt, „Blick aus dem All“, Flugzeug-Simulation | ✅ |
 | M6 | **Sonnensystem-Ansicht** (rauszoomen, Planeten anschauen) | als Nächstes |
-| M7 | Hochaufgelöste Wolken Europa (MTG 1 km / 10 min) | geplant |
+| M7 | Echtfarben Europa/Afrika (Meteosat-12, stündlich) | ✅ |
+| M7b | Echtfarben Amerika (GOES GeoColor), 10-Minuten-Schritte für die letzten Stunden | geplant |
 | M8 | Desktop-EXE (Tauri oder Electron) | geplant |
 | M9 | Handy (PWA oder Capacitor) | geplant |
 | M10 | Sonneneinstrahlung als Karte (W/m²) | optional |
