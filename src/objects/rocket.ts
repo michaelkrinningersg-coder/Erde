@@ -1,5 +1,9 @@
 import {
   CallbackPositionProperty,
+  CallbackProperty,
+  Cartographic,
+  Matrix3,
+  Quaternion,
   Cartesian2,
   Cartesian3,
   Color,
@@ -25,6 +29,9 @@ import { launchPadIcon, rocketIcon } from '../icons';
 //  3. Parkbahn: tiefer = schneller → die Rakete holt auf, bis die Station ~12° voraus ist
 //  4. Bahnanhebung (halbe Umlaufbahn) auf Stationshöhe
 //  5. Annäherung (15 min) und Andocken – danach fliegt sie mit der Station mit
+//  6. Nach 2 h: Abdocken, Bremszündung, Wiedereintritt (Hitzeschild voraus), Fallschirme, Landung
+// Unterwegs fallen die Stufen ab: Stufe 1 nach 2½ min (stürzt ballistisch zurück), Stufe 2 im Orbit,
+// der Versorgungsteil (Trunk) vor dem Wiedereintritt.
 // Gerechnet wird im erdmittelpunktfesten, nicht mitdrehenden System (TEME, wie SGP4),
 // dargestellt im erdfesten System.
 
@@ -53,7 +60,21 @@ export interface RocketTarget {
   entity: Entity;
 }
 
-export type Phase = 'countdown' | 'ascent' | 'parking' | 'transfer' | 'approach' | 'docked';
+export type Phase =
+  | 'countdown'
+  | 'ascent'
+  | 'parking'
+  | 'transfer'
+  | 'approach'
+  | 'docked'
+  | 'undock'
+  | 'deorbit'
+  | 'reentry'
+  | 'parachute'
+  | 'landed';
+
+/** Reihenfolge der Phasen */
+export const PHASES: Phase[] = ['countdown', 'ascent', 'parking', 'transfer', 'approach', 'docked', 'undock', 'deorbit', 'reentry', 'parachute', 'landed'];
 
 export interface Mission {
   id: string;
@@ -62,7 +83,11 @@ export interface Mission {
   launch: JulianDate;
   times: Record<Phase, JulianDate>; // Beginn der jeweiligen Phase
   entity: Entity;
+  /** Abfallende Teile, Fallschirm, Glühen */
+  parts: Entity[];
   pad: Entity;
+  /** Zeitpunkt der Trennung der ersten Stufe */
+  meco: JulianDate;
 }
 
 const MU = 398600.4418; // km³/s²
@@ -71,6 +96,12 @@ const ASCENT_S = 540;
 const PARK_ALT = 200; // km
 const TRANSFER_GAP = (12 * Math.PI) / 180; // Station so weit voraus → Bahnanhebung beginnt
 const APPROACH_S = 900;
+const MECO_S = 150; // Brennschluss/Trennung der ersten Stufe
+const STAY_S = 2 * 3600; // so lange bleibt die Kapsel an der Station
+const UNDOCK_S = 600;
+const DEORBIT_S = 2700; // Bremszündung bis Eintritt in die Atmosphäre (100 km)
+const REENTRY_S = 480; // 100 km → 10 km
+const CHUTE_S = 720; // 10 km → Boden
 
 type V = [number, number, number];
 const dot = (a: V, b: V) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -203,6 +234,72 @@ export function planMission(viewer: Viewer, site: LaunchSite, target: RocketTarg
   }
   const dockMs = approachStart + APPROACH_S * 1000;
 
+  // 5) Rückflug: abdocken (nach hinten wegdrücken), Bahn absenken, Wiedereintritt, Fallschirm
+  const ret = new SampledPositionProperty();
+  ret.setInterpolationOptions({ interpolationDegree: 3, interpolationAlgorithm: LagrangePolynomialApproximation });
+  const undockMs = dockMs + STAY_S * 1000;
+  const deorbitMs = undockMs + UNDOCK_S * 1000;
+  let last: V = [0, 0, 0];
+  for (let s = 0; s <= UNDOCK_S; s += 10) {
+    const ms = undockMs + s * 1000;
+    const st = stationEci(target.satrec, ms)!;
+    const d = 2 * smooth(s / UNDOCK_S); // km zurück
+    last = add(add(st.r, scale(norm(st.v), -d)), scale(norm(st.r), -0.3 * smooth(s / UNDOCK_S)));
+    ret.addSample(JulianDate.fromDate(new Date(ms)), toFixed(last, ms));
+  }
+  // Bahnebene beim Abdocken
+  const stU = stationEci(target.satrec, deorbitMs)!;
+  const nU = norm(cross(stU.r, stU.v));
+  const f1 = norm(last);
+  const f2 = cross(nU, f1);
+  let th = 0;
+  const r0 = Math.hypot(...last);
+  for (let s = 10; s <= DEORBIT_S; s += 10) {
+    const r = r0 + (RE + 100 - r0) * smooth(s / DEORBIT_S);
+    th += Math.sqrt(MU / r ** 3) * 10;
+    const ms = deorbitMs + s * 1000;
+    last = add(scale(f1, r * Math.cos(th)), scale(f2, r * Math.sin(th)));
+    ret.addSample(JulianDate.fromDate(new Date(ms)), toFixed(last, ms));
+  }
+  // Wiedereintritt: im erdfesten System weiter in Flugrichtung, stark abbremsen
+  const reentryMs = deorbitMs + DEORBIT_S * 1000;
+  const pA = toFixed(last, reentryMs);
+  const pB = ret.getValue(JulianDate.fromDate(new Date(reentryMs - 10_000)))!;
+  const groundDir = Cartesian3.normalize(Cartesian3.subtract(pA, pB, new Cartesian3()), new Cartesian3());
+  const cA = Cartographic.fromCartesian(pA);
+  const up = Cartesian3.normalize(pA, new Cartesian3());
+  const horiz = Cartesian3.normalize(
+    Cartesian3.subtract(groundDir, Cartesian3.multiplyByScalar(up, Cartesian3.dot(groundDir, up), new Cartesian3()), new Cartesian3()),
+    new Cartesian3(),
+  );
+  const v0 = Cartesian3.distance(pA, pB) / 10; // m/s (erdfest)
+  const geoAt = (dist: number, alt: number) => {
+    // Kreisbogen über die Erdoberfläche in Richtung `horiz`
+    const a = dist / (RE * 1000);
+    const dir = Cartesian3.add(
+      Cartesian3.multiplyByScalar(up, Math.cos(a), new Cartesian3()),
+      Cartesian3.multiplyByScalar(horiz, Math.sin(a), new Cartesian3()),
+      new Cartesian3(),
+    );
+    const g = Cartographic.fromCartesian(Cartesian3.multiplyByScalar(dir, RE * 1000, new Cartesian3()));
+    return Cartesian3.fromRadians(g.longitude, g.latitude, alt);
+  };
+  let landing = pA;
+  for (let s = 10; s <= REENTRY_S; s += 10) {
+    const x = s / REENTRY_S;
+    const dist = v0 * REENTRY_S * (x - x * x / 2) * 0.9; // gleichmäßig abbremsen
+    const alt = cA.height + (10_000 - cA.height) * smooth(x);
+    landing = geoAt(dist, alt);
+    ret.addSample(JulianDate.fromDate(new Date(reentryMs + s * 1000)), landing);
+  }
+  const chuteMs = reentryMs + REENTRY_S * 1000;
+  const lg = Cartographic.fromCartesian(landing);
+  for (let s = 10; s <= CHUTE_S; s += 10) {
+    const alt = 10_000 * (1 - Math.pow(s / CHUTE_S, 0.8));
+    ret.addSample(JulianDate.fromDate(new Date(chuteMs + s * 1000)), Cartesian3.fromRadians(lg.longitude, lg.latitude, alt));
+  }
+  const landedMs = chuteMs + CHUTE_S * 1000;
+
   const launch = JulianDate.fromDate(new Date(launchMs));
   const jd = (ms: number) => JulianDate.fromDate(new Date(ms));
   const times: Record<Phase, JulianDate> = {
@@ -212,29 +309,50 @@ export function planMission(viewer: Viewer, site: LaunchSite, target: RocketTarg
     transfer: jd(transferStart),
     approach: jd(approachStart),
     docked: jd(dockMs),
+    undock: jd(undockMs),
+    deorbit: jd(deorbitMs),
+    reentry: jd(reentryMs),
+    parachute: jd(chuteMs),
+    landed: jd(landedMs),
   };
+  const end = JulianDate.addSeconds(times.landed, 3600, new JulianDate());
+  const landedPos = Cartesian3.fromRadians(lg.longitude, lg.latitude, 0);
 
-  // Nach dem Andocken: mit der Station mitfliegen
-  const dockJd = times.docked;
+  // Kapsel-Position über die ganze Mission
   const stationPos = target.entity.position!;
-  const combined = new CallbackPositionProperty((time, result) => {
+  const capsulePos = new CallbackPositionProperty((time, result) => {
     if (!time) return undefined;
     if (JulianDate.lessThan(time, launch)) return padPosition(site, result);
-    if (JulianDate.lessThan(time, dockJd)) return position.getValue(time, result);
-    return stationPos.getValue(time, result);
+    if (JulianDate.lessThan(time, times.docked)) return position.getValue(time, result);
+    if (JulianDate.lessThan(time, times.undock)) return stationPos.getValue(time, result);
+    if (JulianDate.lessThan(time, times.landed)) return ret.getValue(time, result);
+    return Cartesian3.clone(landedPos, result);
   }, false);
 
-  const end = JulianDate.addDays(dockJd, 1, new JulianDate());
+  // Ausrichtung der Kapsel (+X = Spitze): auf der Rampe senkrecht, im Flug in Flugrichtung,
+  // beim Wiedereintritt Hitzeschild voraus, am Fallschirm wieder senkrecht
+  const capsuleOrientation = orientationProperty(capsulePos, (time) => {
+    const ph = phaseAt0(times, time);
+    if (ph === 'waiting' || ph === 'countdown' || ph === 'parachute' || ph === 'landed') return 'up';
+    if (ph === 'reentry') return 'back';
+    if (ph === 'docked' || ph === 'undock') return { along: stationPos };
+    return 'forward';
+  });
+
+  const meco = JulianDate.addSeconds(launch, MECO_S, new JulianDate());
   const label = `${site.rocket} → ${target.name}`;
   const entity = new Entity({
     id,
     name: label,
     availability: new TimeIntervalCollection([new TimeInterval({ start: times.countdown, stop: end })]),
-    position: combined,
+    position: capsulePos,
+    orientation: capsuleOrientation,
+    model: { uri: './models/kapsel.glb', distanceDisplayCondition: new DistanceDisplayCondition(0, MODEL_RANGE) },
     billboard: {
       image: rocketIcon(),
-      alignedAxis: new VelocityVectorProperty(combined, true),
+      alignedAxis: new VelocityVectorProperty(capsulePos, true),
       scaleByDistance: new NearFarScalar(5e4, 1.3, 2e7, 0.7),
+      distanceDisplayCondition: new DistanceDisplayCondition(MODEL_RANGE, Number.MAX_VALUE),
     },
     label: {
       text: label,
@@ -245,6 +363,7 @@ export function planMission(viewer: Viewer, site: LaunchSite, target: RocketTarg
       style: LabelStyle.FILL_AND_OUTLINE,
       verticalOrigin: VerticalOrigin.TOP,
       pixelOffset: new Cartesian2(0, 22),
+      distanceDisplayCondition: new DistanceDisplayCondition(MODEL_RANGE, Number.MAX_VALUE),
     },
     path: {
       leadTime: 0,
@@ -253,9 +372,45 @@ export function planMission(viewer: Viewer, site: LaunchSite, target: RocketTarg
       resolution: 30,
       material: Color.fromCssColorString('#ff9f43').withAlpha(0.9),
     },
-    // Kamera beim Mitfliegen: schräg hinten oben
-    viewFrom: new Cartesian3(-60_000, -60_000, 35_000),
+    // Kamera beim Mitfliegen: schräg hinten oben, nah genug für die echte Größe
+    viewFrom: new Cartesian3(-140, -110, 60),
   });
+
+  // Abfallende Teile: bis zur Trennung im gemeinsamen Stapel-Koordinatensystem an der Kapsel,
+  // danach eigene Bahn
+  const parts: Entity[] = [];
+  const attachedUntil = (sep: JulianDate, after: (time: JulianDate, result?: Cartesian3) => Cartesian3 | undefined) =>
+    new CallbackPositionProperty((time, result) => {
+      if (!time) return undefined;
+      return JulianDate.lessThan(time, sep) ? capsulePos.getValue(time, result) : after(time, result);
+    }, false);
+  const partEntity = (name: string, file: string, pos: CallbackPositionProperty, from: JulianDate, to: JulianDate, ori = capsuleOrientation) => {
+    const e = new Entity({
+      id: `${id}-${file}`,
+      name,
+      availability: new TimeIntervalCollection([new TimeInterval({ start: from, stop: to })]),
+      position: pos,
+      orientation: ori,
+      model: { uri: `./models/${file}.glb`, distanceDisplayCondition: new DistanceDisplayCondition(0, MODEL_RANGE) },
+    });
+    parts.push(e);
+    return e;
+  };
+
+  // Stufe 1: ballistisch zurück (Schwerkraft, ohne Luftwiderstand), bis zum Boden
+  const s1 = ballistic(position, meco, 900);
+  const s1Pos = attachedUntil(meco, (time, result) => s1.getValue(time, result));
+  partEntity('Erste Stufe', 'rakete_stufe1', s1Pos, times.countdown, s1.end, frozenAfter(capsuleOrientation, meco, s1Pos));
+  // Stufe 2: trennt sich im Orbit und bleibt langsam zurück
+  const s2Pos = attachedUntil(times.parking, (time, result) => drift(capsulePos, times.parking, time, 4, 1.5, result));
+  partEntity('Zweite Stufe', 'rakete_stufe2', s2Pos, times.countdown, JulianDate.addSeconds(times.parking, 1800, new JulianDate()), frozenAfter(capsuleOrientation, times.parking, s2Pos));
+  // Versorgungsteil (Trunk): bleibt bis zur Bremszündung an der Kapsel
+  const trunkPos = attachedUntil(times.deorbit, (time, result) => drift(capsulePos, times.deorbit, time, -3, 2, result));
+  partEntity('Versorgungsteil', 'kapsel_trunk', trunkPos, times.countdown, JulianDate.addSeconds(times.deorbit, 1500, new JulianDate()), frozenAfter(capsuleOrientation, times.deorbit, trunkPos));
+  // Glühen beim Wiedereintritt, Fallschirme am Ende
+  partEntity('Wiedereintritt', 'kapsel_gluehen', capsulePos, times.reentry, times.parachute);
+  partEntity('Fallschirme', 'fallschirm', capsulePos, JulianDate.addSeconds(times.parachute, 20, new JulianDate()), JulianDate.addSeconds(times.landed, 60, new JulianDate()));
+
   const pad = new Entity({
     id: `${id}-pad`,
     name: `Startplatz ${site.name}`,
@@ -275,7 +430,102 @@ export function planMission(viewer: Viewer, site: LaunchSite, target: RocketTarg
   });
   viewer.entities.add(pad);
   viewer.entities.add(entity);
-  return { id, site, target, launch, times, entity, pad };
+  for (const p of parts) viewer.entities.add(p);
+  return { id, site, target, launch, times, entity, parts, pad, meco };
+}
+
+/** Bis zu dieser Entfernung (m) Modelle zeigen, darüber das Raketensymbol */
+const MODEL_RANGE = 60_000;
+
+type Aim = 'up' | 'forward' | 'back' | { along: CallbackPositionProperty | import('cesium').PositionProperty };
+
+const scratchA = new Cartesian3();
+const scratchB = new Cartesian3();
+
+/** Ausrichtung aus einer Richtung (+X) und der Senkrechten (+Z möglichst nach oben) */
+function quatFromX(pos: Cartesian3, x: Cartesian3): Quaternion {
+  const X = Cartesian3.normalize(x, new Cartesian3());
+  const upv = Cartesian3.normalize(pos, new Cartesian3());
+  let ref = upv;
+  if (Math.abs(Cartesian3.dot(X, upv)) > 0.98) ref = Cartesian3.normalize(Cartesian3.cross(Cartesian3.UNIT_Z, upv, new Cartesian3()), new Cartesian3()); // senkrecht: Bezug nach Osten
+  const Z = Cartesian3.normalize(
+    Cartesian3.subtract(ref, Cartesian3.multiplyByScalar(X, Cartesian3.dot(ref, X), new Cartesian3()), new Cartesian3()),
+    new Cartesian3(),
+  );
+  const Y = Cartesian3.cross(Z, X, new Cartesian3());
+  const m = new Matrix3(X.x, Y.x, Z.x, X.y, Y.y, Z.y, X.z, Y.z, Z.z);
+  return Quaternion.fromRotationMatrix(m);
+}
+
+function orientationProperty(pos: CallbackPositionProperty, aim: (t: JulianDate) => Aim) {
+  return new CallbackProperty((time) => {
+    if (!time) return undefined;
+    const p = pos.getValue(time, scratchA);
+    if (!p) return undefined;
+    const a = aim(time);
+    if (a === 'up') return quatFromX(p, p);
+    const src = typeof a === 'object' ? a.along : pos;
+    const p0 = src.getValue(JulianDate.addSeconds(time, -0.5, new JulianDate()), new Cartesian3());
+    const p1 = src.getValue(JulianDate.addSeconds(time, 0.5, new JulianDate()), scratchB);
+    if (!p0 || !p1) return quatFromX(p, p);
+    const v = Cartesian3.subtract(p1, p0, new Cartesian3());
+    if (Cartesian3.magnitude(v) < 0.5) return quatFromX(p, p);
+    return quatFromX(p, a === 'back' ? Cartesian3.negate(v, v) : v);
+  }, false);
+}
+
+/** Nach der Trennung behält ein Teil die letzte Ausrichtung bei (taumelt nicht wild herum) */
+function frozenAfter(ori: CallbackProperty, sep: JulianDate, pos: CallbackPositionProperty) {
+  let frozen: Quaternion | undefined;
+  return new CallbackProperty((time) => {
+    if (!time) return undefined;
+    if (JulianDate.lessThan(time, sep)) return ori.getValue(time);
+    if (!frozen) frozen = ori.getValue(sep) as Quaternion;
+    // Langsam kippen, damit es lebendig wirkt
+    const dt = JulianDate.secondsDifference(time, sep);
+    const p = pos.getValue(time, scratchA);
+    if (!p) return frozen;
+    const spin = Quaternion.fromAxisAngle(Cartesian3.UNIT_Y, dt * 0.02);
+    return Quaternion.multiply(frozen, spin, new Quaternion());
+  }, false);
+}
+
+/** Ballistische Flugbahn ab `from` (Startgeschwindigkeit aus der Bahn davor), bis zum Boden */
+function ballistic(path: SampledPositionProperty, from: JulianDate, maxS: number) {
+  const out = new SampledPositionProperty();
+  const p = path.getValue(from)!.clone();
+  const pPrev = path.getValue(JulianDate.addSeconds(from, -1, new JulianDate()))!;
+  const v = Cartesian3.subtract(p, pPrev, new Cartesian3());
+  const GM = MU * 1e9;
+  let end = from;
+  for (let s = 0; s <= maxS; s += 2) {
+    const t = JulianDate.addSeconds(from, s, new JulianDate());
+    out.addSample(t, p.clone());
+    end = t;
+    if (Cartographic.fromCartesian(p).height < 0) break;
+    const r = Cartesian3.magnitude(p);
+    const g = Cartesian3.multiplyByScalar(p, -GM / r ** 3, new Cartesian3());
+    Cartesian3.add(v, Cartesian3.multiplyByScalar(g, 2, g), v);
+    Cartesian3.add(p, Cartesian3.multiplyByScalar(v, 2, new Cartesian3()), p);
+  }
+  return Object.assign(out, { end });
+}
+
+/** Teil treibt nach der Trennung langsam zurück (−) oder vor (+) und nach unten (m/s) */
+function drift(base: CallbackPositionProperty, sep: JulianDate, time: JulianDate, back: number, down: number, result?: Cartesian3) {
+  const dt = JulianDate.secondsDifference(time, sep);
+  const p = base.getValue(time, result);
+  if (!p) return undefined;
+  const p1 = base.getValue(JulianDate.addSeconds(time, 1, new JulianDate()), new Cartesian3())!;
+  const dir = Cartesian3.normalize(Cartesian3.subtract(p1, p, new Cartesian3()), new Cartesian3());
+  const upv = Cartesian3.normalize(p, new Cartesian3());
+  Cartesian3.add(p, Cartesian3.multiplyByScalar(dir, -back * dt, new Cartesian3()), p);
+  return Cartesian3.add(p, Cartesian3.multiplyByScalar(upv, -down * dt, new Cartesian3()), p);
+}
+
+function phaseAt0(times: Record<Phase, JulianDate>, time: JulianDate): Phase | 'waiting' {
+  for (let i = PHASES.length - 1; i >= 0; i--) if (!JulianDate.lessThan(time, times[PHASES[i]])) return PHASES[i];
+  return 'waiting';
 }
 
 function padPosition(site: LaunchSite, result?: Cartesian3) {
@@ -284,7 +534,5 @@ function padPosition(site: LaunchSite, result?: Cartesian3) {
 
 /** In welcher Phase ist die Mission zu diesem Zeitpunkt? */
 export function phaseAt(m: Mission, time: JulianDate): Phase | 'waiting' {
-  const order: Phase[] = ['docked', 'approach', 'transfer', 'parking', 'ascent', 'countdown'];
-  for (const p of order) if (!JulianDate.lessThan(time, m.times[p])) return p;
-  return 'waiting';
+  return phaseAt0(m.times, time);
 }

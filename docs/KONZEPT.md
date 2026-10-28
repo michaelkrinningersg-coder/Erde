@@ -116,7 +116,10 @@ immer Daten hat. JWST hat keine Bahndaten (steht am L2) → Näherung „1,5 Mio
 | M8 | Windows-Programm (Tauri, gebaut auf Wunsch in GitHub Actions – wie bei Schienenland) | ✅ |
 | M9 | Handy (PWA oder Capacitor) | geplant |
 | M10 | Sonneneinstrahlung als Karte (W/m²) | optional |
-| — | Rakete zur ISS | eigenes Projekt |
+| M11 | Rakete zur ISS/Tiangong (Stufentrennung, Andocken, Rückflug) | ✅ |
+| M12 | 3D-Modelle der Stationen, Teleskope und Rakete (Blender-Skript) | ✅ |
+| M13 | 10-Minuten-Bilder für die letzten 6 h (Echtfarben) | ✅ |
+| M14 | 10-Minuten-Infrarot für Europa/Amerika (Nachtseite) | Idee |
 
 ## 7. Offene Punkte
 

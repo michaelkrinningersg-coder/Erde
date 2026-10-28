@@ -3,14 +3,16 @@
 Interaktive 3D-Erde im Browser – für mich und meine Kinder.
 
 - **Echte Wolken** (EUMETSAT-Infrarot-Weltmosaik, alle 3 h, Tag und Nacht), bis zu **30 Tage zurückspulen** (Standard 7)
-- **Echtfarben-Satellitenbilder** für Europa & Afrika (Meteosat-12) und Amerika (GOES-19), stündlich, ~3 km, auf der Tagseite – mit weichen Übergängen
+- **Echtfarben-Satellitenbilder** für Europa & Afrika (Meteosat-12) und Amerika (GOES-19) auf der Tagseite – mit weichen Übergängen; die letzten 6 Stunden im 10-Minuten-Takt (beim Start direkt geladen), davor stündlich aus dem Archiv
 - **Tag/Nacht** mit echtem Sonnenstand, **Stadtlichter** auf der Nachtseite – sichtbar, wo der Himmel klar ist
 - **Satelliten** an ihrer echten Position: ISS, Tiangong, Hubble & weitere Weltraumteleskope, GPS, Galileo, Starlink-Beispiele; optional Sentinel und OneWeb
 - **Sonne, Mond, Planeten** (Marker in echter Richtung, vergrößert), James-Webb-Teleskop, **Flug zum Mond** mit echter Mondphase
 - **Sonnensystem-Ansicht** (kindgerecht zusammengerückt, Planeten in echter Richtung, anklickbar, Zeitraffer bis 1 Monat/s) – per Knopf oder einfach ganz weit rauszoomen
 - **Zuhause-Knopf** 🏠: Ort einmal festlegen (Standort, Stadt oder Bildmitte), gespeichert nur im Browser
-- **Fokuspunkt**: Doppelklick auf die Erde → die Erde dreht sich um diesen Punkt
+- **Immer eingenordet**: Ziehen dreht, Mausrad zoomt; Kompass-Knopf zum Einnorden; Doppelklick fliegt hin
 - **Flugzeug-Simulation** zwischen 24 Städten (z. B. Frankfurt ⇄ New York)
+- **Rakete zur ISS/Tiangong** von echten Startplätzen: Startfenster, Stufentrennung, Parkbahn, Andocken, nach 2 h Rückflug mit glühendem Wiedereintritt und Fallschirmen
+- **3D-Modelle** (per Blender-Skript gebaut): ISS, Tiangong, Hubble, James Webb, Chandra, XMM-Newton, Swift, Fermi, NuSTAR, Rakete mit Stufen und Kapsel
 - Jedes Objekt einzeln ein-/ausblendbar
 
 Konzept, Datenquellen und Fahrplan: [docs/KONZEPT.md](docs/KONZEPT.md)
@@ -57,6 +59,9 @@ Datei klein (kein Electron). Wolken- und Bahndaten holt das Programm von der Git
 | `src/objects/satellites.ts` | Satelliten (SGP4 mit satellite.js), Bahnlinien |
 | `src/objects/sky.ts` | Sonne, Mond, Planeten, James Webb (astronomy-engine) |
 | `src/objects/flights.ts` | Flugsimulation auf dem Großkreis |
+| `src/objects/rocket.ts`, `rocketControl.ts` | Raketenmission (Bahnmechanik, Stufen, Rückflug), Autopilot-Zeitraffer, Anzeige |
+| `src/svgIcons.ts` | Eigener Symbolsatz |
+| `tools/blender/raumfahrt.py` | 3D-Modelle (Blender-Python), Ausgabe nach `public/models/` |
 | `src/solar/solarSystem.ts` | Sonnensystem-Ansicht (Three.js) |
 | `src/home.ts` | Zuhause-Ort und Marker |
 | `src/camera.ts` | Fokuspunkt, „Blick aus dem All“, Mondflug |

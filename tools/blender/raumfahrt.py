@@ -44,6 +44,14 @@ MAT = {
     "violett": dict(c=(0.82, 0.72, 0.92), m=1.0, r=0.16),                          # JWST-Sonnenschild
     "glas": dict(c=(0.06, 0.09, 0.14), m=0.9, r=0.05),
     "carbon": dict(c=(0.13, 0.13, 0.14), m=0.3, r=0.45),
+    "lack": dict(c=(0.93, 0.93, 0.92), m=0.0, r=0.35),                             # Raketenlack
+    "russ": dict(c=(0.05, 0.05, 0.05), m=0.0, r=0.85),                             # Hitzeschild, Zwischenstufe
+    "duese": dict(c=(0.16, 0.15, 0.15), m=0.9, r=0.4),                             # Triebwerksdüsen
+    "rot": dict(c=(0.80, 0.10, 0.08), m=0.0, r=0.8),                               # Fallschirmbahnen
+    "stoff": dict(c=(0.95, 0.95, 0.93), m=0.0, r=0.8),
+    "leine": dict(c=(0.80, 0.78, 0.72), m=0.0, r=0.7),
+    "plasma": dict(c=(1.0, 0.45, 0.12), m=0.0, r=0.5, e=4.0, a=0.35),              # Wiedereintrittsglühen
+    "plasma_kern": dict(c=(1.0, 0.70, 0.30), m=0.0, r=0.5, e=10.0, a=0.7),
 }
 _mats, _tex = {}, {}
 
@@ -108,6 +116,16 @@ def material(key):
     b.inputs["Base Color"].default_value = (*lin(s["c"]), 1)
     b.inputs["Metallic"].default_value = s["m"]
     b.inputs["Roughness"].default_value = s["r"]
+    if s.get("e"):
+        b.inputs["Emission Color"].default_value = (*lin(s["c"]), 1)
+        b.inputs["Emission Strength"].default_value = s["e"]
+    if s.get("a"):
+        b.inputs["Alpha"].default_value = s["a"]
+        for attr, val in (("surface_render_method", "BLENDED"), ("blend_method", "BLEND")):
+            try:
+                setattr(m, attr, val)
+            except Exception:
+                pass
     if s.get("tex"):
         t = nt.nodes.new("ShaderNodeTexImage")
         t.image = _textur(s["tex"])
@@ -180,7 +198,8 @@ class Bau:
                     uvs.append(((p[ua] + h[ua]) / t[ua], (p[va] + h[va]) / t[va]))
                 s._face(vs, k, uvs)
 
-    def lathe(s, p0, d, prof, key, n=24, glatt=True, phase=0.0, up=None, deckel=(False, False), keys_deckel=None):
+    def lathe(s, p0, d, prof, key, n=24, glatt=True, phase=0.0, up=None, deckel=(False, False), keys_deckel=None,
+              key_seg=None):
         """Drehkörper: prof = [(Abstand entlang d, Radius), …] ab p0"""
         p0, d = V(p0), Vector(d).normalized()
         a, b = basis(d, up)
@@ -199,7 +218,7 @@ class Bau:
                 k = (i + 1) % n
                 u0, u1 = i / n, (i + 1) / n
                 cu = 2 * math.pi * max(r0, r1, 0.05) / t
-                s._face([rings[j][i], rings[j][k], rings[j + 1][k], rings[j + 1][i]], key,
+                s._face([rings[j][i], rings[j][k], rings[j + 1][k], rings[j + 1][i]], key_seg(i) if key_seg else key,
                         [(u0 * cu, acc / t), (u1 * cu, acc / t), (u1 * cu, (acc + l) / t), (u0 * cu, (acc + l) / t)],
                         glatt)
             acc += l
@@ -312,12 +331,13 @@ class Bau:
                     else:
                         s.rod(q + cs[j], q2 + cs[i], rod * 0.8, key)
 
-    def fertig(s, name):
-        """bmesh -> ein Objekt, Ursprung in die Mitte der Umgebungsbox"""
-        co = np.array([v.co[:] for v in s.bm.verts])
-        mid = (co.min(0) + co.max(0)) / 2
-        for v in s.bm.verts:
-            v.co -= Vector(mid)
+    def fertig(s, name, zentrieren=True):
+        """bmesh -> ein Objekt, Ursprung in die Mitte der Umgebungsbox (oder Einbaulage beibehalten)"""
+        if zentrieren:
+            co = np.array([v.co[:] for v in s.bm.verts])
+            mid = (co.min(0) + co.max(0)) / 2
+            for v in s.bm.verts:
+                v.co -= Vector(mid)
         me = bpy.data.meshes.new(name)
         s.bm.normal_update()
         s.bm.to_mesh(me)
@@ -714,8 +734,167 @@ def xmm():
     return b
 
 
+# ---------------------------------------------------------------- Rakete mit Crew-Kapsel (zerlegbar)
+# Gemeinsames Stapel-System: +X = Spitze/Flugrichtung, Ursprung = Kapselmitte. Jedes Teil bleibt in seiner
+# Einbaulage (nicht zentriert), alle Teile an dieselbe Stelle gesetzt ergeben den Stapel.
+# Neutrale Bauart nach Vorbild einer modernen Zweistufenrakete mit Crew-Kapsel, ohne Logos/Schriftzüge.
+RR = 1.85                       # Radius der Stufen und des Trunks (Ø 3,7 m)
+K_UNTEN = -2.0                  # Trunk-Oberkante (= Auflage des Hitzeschilds)
+T_UNTEN = K_UNTEN - 3.7         # Trunk-Unterkante = Oberkante Zweitstufe
+S2_UNTEN = T_UNTEN - 10.55      # Tankboden Zweitstufe = Oberkante Erststufe (Zwischenstufe)
+S1_UNTEN = S2_UNTEN - 42.0      # Düsenaustritt Erststufe
+
+
+def gitterflosse(b, x, phi):
+    """Eingeklappte Gitterflosse: Rahmen mit Gitter, tangential am Zwischenstufen-Ring"""
+    e = Vector((0, math.cos(phi), math.sin(phi)))
+    t = Vector((0, -math.sin(phi), math.cos(phi)))
+    c = Vector((x, 0, 0)) + e * (RR + 0.28)
+    b.box(Vector((x - 0.9, 0, 0)) + e * (RR + 0.1), (0.4, 0.5, 0.3), "dunkel", ax=(X, t, e))  # Aktuator
+    hl, hw = 0.75, 0.6
+    ecken = [c + X * sx * hl + t * sy * hw for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+    for i in range(4):
+        b.rod(ecken[i], ecken[(i + 1) % 4], 0.09, "duese")
+    for k in range(1, 6):                       # Gitterstäbe diagonal wie beim Original-Gitter
+        f = k / 6
+        b.rod(c + X * hl * (2 * f - 1) - t * hw, c + X * hl * (2 * f - 1) + t * hw, 0.03, "duese")
+        b.rod(c - X * hl + t * hw * (2 * f - 1), c + X * hl + t * hw * (2 * f - 1), 0.03, "duese")
+
+
+def rakete_stufe1():
+    b = Bau()
+    top = S2_UNTEN
+    zw = top - 6.0                                                                  # Zwischenstufe 6 m
+    b.cyl((S1_UNTEN + 1.35, 0, 0), (zw, 0, 0), RR, "lack", n=32, keys_deckel=("russ", "lack"))   # Tank
+    b.cyl((zw, 0, 0), (top, 0, 0), RR, "russ", n=32, deckel=(False, False))                     # Zwischenstufe
+    b.cyl((zw + 0.3, 0, 0), (top, 0, 0), RR - 0.05, "russ", n=32, deckel=(False, False))         # innen
+    b.cyl((S1_UNTEN + 1.2, 0, 0), (S1_UNTEN + 1.35, 0, 0), RR, "russ", n=32)                    # Hitzeschutzboden
+    # 9 Triebwerke: 8 im Kreis + 1 in der Mitte
+    glocke = [(0, 0.2), (0.25, 0.3), (0.65, 0.4), (1.2, 0.46)]
+    for k in range(9):
+        if k < 8:
+            a = 2 * math.pi * k / 8
+            p = Vector((S1_UNTEN + 1.2, 1.25 * math.cos(a), 1.25 * math.sin(a)))
+        else:
+            p = Vector((S1_UNTEN + 1.2, 0, 0))
+        b.lathe(p, -X, glocke, "duese", 16)
+    for k in range(4):                                                               # Gitterflossen 0/90/180/270°
+        gitterflosse(b, top - 0.9, math.pi / 2 * k)
+    for k in range(4):                                                               # Landebeine 45/135/…°
+        phi = math.pi / 4 + math.pi / 2 * k
+        e = Vector((0, math.cos(phi), math.sin(phi)))
+        t = Vector((0, -math.sin(phi), math.cos(phi)))
+        b.box(Vector((S1_UNTEN + 1.3 + 4.9, 0, 0)) + e * (RR + 0.16), (9.6, 0.9, 0.3), "carbon", ax=(X, t, e))
+        b.box(Vector((S1_UNTEN + 1.3 + 0.2, 0, 0)) + e * (RR + 0.25), (0.4, 1.1, 0.5), "duese", ax=(X, t, e))
+        b.rod(Vector((S1_UNTEN + 10.2, 0, 0)) + e * (RR + 0.3), Vector((S1_UNTEN + 11.8, 0, 0)) + e * RR, 0.18, "grau")
+    return b
+
+
+def rakete_stufe2():
+    b = Bau()
+    b.cyl((S2_UNTEN, 0, 0), (T_UNTEN, 0, 0), RR, "lack", n=32, keys_deckel=("russ", "grau"))
+    b.cyl((T_UNTEN - 0.25, 0, 0), (T_UNTEN, 0, 0), RR + 0.01, "grau", n=32, deckel=(False, False))   # Adapterring
+    b.cyl((S2_UNTEN, 0, 0), (S2_UNTEN - 0.7, 0, 0), 0.55, "duese", r1=0.45, n=16)                   # Triebwerk
+    b.lathe((S2_UNTEN - 0.7, 0, 0), -X, [(0, 0.45), (0.5, 0.85), (1.3, 1.3), (2.3, 1.6)], "duese", 28)  # Vakuumdüse
+    return b
+
+
+def kapsel_trunk():
+    b = Bau()
+    zellen = lambda i: "zellen" if i < 12 else "lack"                              # Zellen auf der Zenit-Hälfte
+    b.lathe((T_UNTEN, 0, 0), X, [(0, RR), (K_UNTEN - T_UNTEN, RR)], "lack", 24, key_seg=zellen,
+            deckel=(True, True), keys_deckel=("grau", "grau"))
+    for sg in (1, -1):                                                               # zwei Finnen (±Y)
+        y0 = sg * RR * 0.99
+        y1 = sg * (RR + 0.75)
+        b.prism([(T_UNTEN, y0, -0.05), (T_UNTEN + 1.6, y0, -0.05), (T_UNTEN + 0.7, y1, -0.05),
+                 (T_UNTEN, y1, -0.05)], (0, 0, 0.1), "lack")
+    return b
+
+
+def kapsel():
+    from mathutils import Matrix
+    b = Bau()
+    # Hitzeschild (schwarz, −X) und Kegelstumpf (weiß)
+    b.lathe((-2.2, 0, 0), X, [(0, 0.0), (0.12, 1.0), (0.2, 1.65), (0.25, 2.0)], "russ", 32)
+    b.lathe((-1.95, 0, 0), X, [(0, 2.0), (0.12, 2.0), (3.3, 1.05), (3.4, 0.95)], "lack", 32,
+            deckel=(False, True), keys_deckel=("lack", "grau"))
+    b.cyl((1.45, 0, 0), (1.75, 0, 0), 0.8, "grau", n=24, keys_deckel=("grau", "dunkel"))      # Docking-Ring
+    # Fenster und SuperDraco-Abdeckungen auf der Kegelfläche
+    neig = math.atan2(0.95, 3.2)
+    for az, x, r in ((35, 0.2, 0.22), (145, 0.2, 0.22), (-35, 0.6, 0.18), (-145, 0.6, 0.18)):
+        a = math.radians(az)
+        e = Vector((0, math.cos(a), math.sin(a)))
+        rx = 2.0 - (x + 1.83) * 0.95 / 3.2
+        nrm = (e * math.cos(neig) + X * math.sin(neig)).normalized()
+        p = Vector((x, 0, 0)) + e * rx
+        b.cyl(p - nrm * 0.02, p + nrm * 0.03, r, "glas", n=12, keys_deckel=("glas", "glas"))
+    for k in range(4):
+        a = math.radians(45 + 90 * k)
+        e = Vector((0, math.cos(a), math.sin(a)))
+        t = Vector((0, -math.sin(a), math.cos(a)))
+        nrm = (e * math.cos(neig) + X * math.sin(neig)).normalized()
+        along = nrm.cross(t)
+        b.box(Vector((-1.3, 0, 0)) + e * (2.0 - 0.55 * 0.95 / 3.2) + nrm * 0.03, (1.0, 0.6, 0.06), "dunkel",
+              ax=(along, t, nrm))
+    # Nasenkappe aufgeklappt: Scharnier an der Oberkante (+Z), nach vorn/oben geschwenkt
+    rot = Matrix.Rotation(math.radians(-115), 3, "Y")
+    hinge = Vector((1.45, 0, 1.05))
+    base = hinge + rot @ Vector((0, 0, -1.05))
+    b.lathe(base, rot @ X, [(0, 1.05), (0.3, 0.9), (0.55, 0.45), (0.62, 0.0)], "lack", 24, up=Y,
+            deckel=(True, False), keys_deckel=("grau", "lack"))
+    b.rod(hinge + Vector((-0.1, 0, -0.1)), base + (rot @ Vector((0, 0, 1))) * 0.9, 0.12, "grau")
+    return b
+
+
+def fallschirm():
+    """Vier Hauptschirme über der Kapsel (+X), Leinen laufen bei x = 3 m zusammen"""
+    b = Bau()
+    conf = Vector((3.0, 0, 0))
+    for k in range(4):                                                               # kurze Gurte zur Kapsel
+        a = math.radians(45 + 90 * k)
+        b.rod(conf, Vector((1.5, 0.8 * math.cos(a), 0.8 * math.sin(a))), 0.08, "leine")
+    R, H, L, tilt, n, m = 16.0, 10.0, 38.0, math.radians(40), 24, 6
+    for k in range(4):
+        phi = math.radians(45 + 90 * k)
+        d = Vector((math.cos(tilt), math.sin(tilt) * math.cos(phi), math.sin(tilt) * math.sin(phi)))
+        rand = conf + d * L                                                          # Mitte des Schirmrands
+        a, bb = basis(d)
+        rings = []
+        for j in range(m + 1):
+            g = math.radians(80) * j / m                                             # bis zur Scheitelöffnung
+            rr, hx = R * math.cos(g), H * math.sin(g)
+            rings.append([b.bm.verts.new(rand + d * hx + (a * math.cos(2 * math.pi * i / n) +
+                                                            bb * math.sin(2 * math.pi * i / n)) * rr)
+                          for i in range(n)])
+        for j in range(m):
+            for i in range(n):
+                i2 = (i + 1) % n
+                key = "rot" if (i // 2) % 2 == 0 else "stoff"
+                b._face([rings[j][i], rings[j][i2], rings[j + 1][i2], rings[j + 1][i]], key,
+                        [(i / n, j / m), ((i + 1) / n, j / m), ((i + 1) / n, (j + 1) / m), (i / n, (j + 1) / m)],
+                        glatt=True)
+        for i in range(0, n, 2):                                                     # 12 Leinen je Schirm
+            b.rod(conf, rings[0][i].co.copy(), 0.05, "leine")
+    return b
+
+
+def kapsel_gluehen():
+    """Halbtransparentes Plasma vor dem Hitzeschild (Wiedereintritt), Ø ~6 m"""
+    b = Bau()
+    b.lathe((-3.5, 0, 0), X, [(0, 0.0), (0.3, 1.5), (0.75, 2.4), (1.4, 2.9), (2.3, 3.05), (3.0, 2.95)], "plasma", 32)
+    b.lathe((-2.55, 0, 0), X, [(0, 0.0), (0.12, 1.1), (0.28, 1.8), (0.45, 2.15), (0.6, 2.25)], "plasma_kern", 32)
+    return b
+
+
 MODELLE = {"iss": iss, "tiangong": tiangong, "hubble": hubble, "jwst": jwst, "chandra": chandra,
-           "fermi": fermi, "swift": swift, "nustar": nustar, "xmm": xmm}
+           "fermi": fermi, "swift": swift, "nustar": nustar, "xmm": xmm,
+           "rakete_stufe1": rakete_stufe1, "rakete_stufe2": rakete_stufe2, "kapsel_trunk": kapsel_trunk,
+           "kapsel": kapsel, "fallschirm": fallschirm, "kapsel_gluehen": kapsel_gluehen}
+STAPEL = {"rakete_stufe1", "rakete_stufe2", "kapsel_trunk", "kapsel", "fallschirm", "kapsel_gluehen"}  # nicht zentriert
+# zusätzliche Vorschaubilder aus mehreren Teilen (Name -> Teile, Kamerarichtung)
+VERBUND = {"rakete_stapel": (["rakete_stufe1", "rakete_stufe2", "kapsel_trunk", "kapsel"], (0.35, -1.0, 0.45)),
+           "kapsel_fallschirm": (["kapsel", "fallschirm"], (0.3, -1.0, 0.35))}
 
 
 # ---------------------------------------------------------------- Export, Kennzahlen, Vorschau
@@ -725,12 +904,17 @@ def kennzahlen(obj):
     co = np.array([v.co[:] for v in me.vertices])
     ext = co.max(0) - co.min(0)
     tris = sum(len(p.vertices) - 2 for p in me.polygons)
-    return {"length_m": round(float(ext[0]), 2), "span_m": round(float(ext[1]), 2), "tris": int(tris)}, ext
+    k = {"length_m": round(float(ext[0]), 2), "span_m": round(float(ext[1]), 2), "tris": int(tris)}
+    if obj.name in STAPEL:  # Lage im gemeinsamen Stapel-System
+        k["x_min_m"], k["x_max_m"] = round(float(co[:, 0].min()), 2), round(float(co[:, 0].max()), 2)
+    return k, ext
 
 
-def vorschau(obj, ext, pfad, richtung=(1.0, -1.25, 0.95)):
-    """Schräg von oben, Cycles auf der CPU (läuft ohne Grafikkarte)"""
+def vorschau(pfad, richtung=(1.0, -1.25, 0.95)):
+    """Alle Meshes der Szene schräg von oben, Cycles auf der CPU (läuft ohne Grafikkarte)"""
     sc = bpy.context.scene
+    co = np.concatenate([np.array([v.co[:] for v in o.data.vertices]) for o in sc.objects if o.type == "MESH"])
+    ext, mitte = co.max(0) - co.min(0), Vector((co.max(0) + co.min(0)) / 2)
     sc.render.engine = "CYCLES"
     sc.cycles.device = "CPU"
     sc.cycles.samples = 24
@@ -756,7 +940,7 @@ def vorschau(obj, ext, pfad, richtung=(1.0, -1.25, 0.95)):
     sc.collection.objects.link(cam)
     d = Vector(richtung).normalized()
     r = Vector(ext).length / 2
-    cam.location = d * r * 2.9
+    cam.location = mitte + d * r * 2.9
     cam.rotation_euler = (-d).to_track_quat("-Z", "Y").to_euler()
     sc.camera = cam
     sc.render.filepath = pfad
@@ -788,7 +972,7 @@ def main():
         bpy.ops.wm.read_factory_settings(use_empty=True)
         _mats.clear()
         _tex.clear()
-        obj = bau().fertig(name)
+        obj = bau().fertig(name, zentrieren=name not in STAPEL)
         k, ext = kennzahlen(obj)
         info[name] = k
         pfad = os.path.join(out, name + ".glb")
@@ -797,7 +981,15 @@ def main():
         print(f"exportiert: {pfad}  {k}  {os.path.getsize(pfad) / 1e6:.2f} MB")
         if bilder:
             os.makedirs(bilder, exist_ok=True)
-            vorschau(obj, ext, os.path.join(bilder, name + ".png"), richtung)
+            vorschau(os.path.join(bilder, name + ".png"), richtung)
+    for name, (teile, ri) in VERBUND.items():
+        if bilder and (not nur or any(t in nur for t in teile)):
+            bpy.ops.wm.read_factory_settings(use_empty=True)
+            _mats.clear()
+            _tex.clear()
+            for t in teile:
+                MODELLE[t]().fertig(t, zentrieren=False)
+            vorschau(os.path.join(bilder, name + ".png"), ri)
     with open(jpfad, "w") as f:
         json.dump(info, f, indent=2)
 
