@@ -3,7 +3,7 @@ import './style.css';
 import { Cartesian3, JulianDate, TimeInterval, Transforms } from 'cesium';
 import { CameraControl } from './camera';
 import { TimeImageLayer } from './clouds/timeLayer';
-import { CLOUDS, COLOR_AMERICA, COLOR_EUROPE, MAX_ZOOM_OUT_M, TIME } from './config';
+import { CLOUDS, COLOR_AMERICA, COLOR_EUROPE, DATA_BASE, MAX_ZOOM_OUT_M, TIME } from './config';
 import { createViewer } from './globe';
 import { HomeControl } from './home';
 import { Flights } from './objects/flights';
@@ -51,10 +51,14 @@ async function main() {
 
   const sky = new Sky(viewer);
   const satellites = new Satellites(viewer);
-  try {
-    await satellites.load('./data/satellites.json');
-  } catch (e) {
-    console.warn('Satellitendaten konnten nicht geladen werden', e);
+  // Frische Bahndaten von der Datenquelle, sonst der mitgelieferte Stand
+  for (const url of new Set([`${DATA_BASE}/data/satellites.json`, './data/satellites.json'])) {
+    try {
+      await satellites.load(url);
+      break;
+    } catch (e) {
+      console.warn('Satellitendaten konnten nicht geladen werden', url, e);
+    }
   }
   const flights = new Flights(viewer);
   const camera = new CameraControl(viewer);

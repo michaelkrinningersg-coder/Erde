@@ -35,6 +35,19 @@ Echtfarbenbilder für Europa/Afrika und Amerika (je 5 Tage, ~2 MB pro Bild) und
 alle 6 Stunden frische Bahndaten. Die Seite ist dann unter `https://<benutzer>.github.io/Erde/` erreichbar.
 Beim allerersten Lauf füllt sich das Wolkenarchiv schrittweise (60 Bilder pro Lauf).
 
+## Windows-Programm (Erde.exe)
+
+Wie bei Schienenland: eine einzelne `.exe`, gebaut **nur auf Wunsch** in GitHub
+(**Actions → „Windows-Programm bauen“ → „Run workflow“**, danach unter „Artifacts“ herunterladen).
+
+- **Erde-Windows**: `Erde.exe` direkt starten (braucht das in Windows 10/11 eingebaute Edge-WebView2)
+- **Erde-Installer**: Setup mit Startmenü-Eintrag; installiert WebView2 bei Bedarf nach
+
+Technik: [Tauri](https://tauri.app) – die Web-App läuft im Windows-eigenen Browser-Fenster, daher ist die
+Datei klein (kein Electron). Wolken- und Bahndaten holt das Programm von der GitHub-Pages-Seite
+(`.env.desktop`), deshalb muss Pages eingeschaltet sein. Lokal: `npm run tauri dev` bzw. `npm run tauri build`
+(braucht Rust).
+
 ## Aufbau
 
 | Pfad | Inhalt |
@@ -50,6 +63,7 @@ Beim allerersten Lauf füllt sich das Wolkenarchiv schrittweise (60 Bilder pro L
 | `src/ui.ts`, `src/style.css` | Bedienfeld, Zeitleiste |
 | `scripts/fetch_imagery.py` | Bildarchiv für Wolken und Echtfarben (läuft in GitHub Actions) |
 | `scripts/fetch-satellites.mjs` | Bahndaten von CelesTrak |
+| `src-tauri/` | Windows-Programm (Tauri-Hülle, Icon) |
 
 ## Datenquellen & Lizenzen
 

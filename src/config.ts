@@ -22,6 +22,13 @@ export const NIGHT_LIGHTS = {
   credit: 'NASA Black Marble (VIIRS) via NASA GIBS',
 };
 
+/**
+ * Woher die stündlich erneuerten Daten (Wolken-/Farbbild-Archiv, Bahndaten) kommen:
+ * im Browser relativ zur Seite, in der Desktop-App von der veröffentlichten GitHub-Pages-Seite
+ * (gesetzt über .env.desktop).
+ */
+export const DATA_BASE: string = import.meta.env.VITE_DATA_BASE ?? '.';
+
 /** Beschreibung einer zeitabhängigen Bildebene (Wolken, Echtfarben) */
 export interface TimeLayerSpec {
   id: string;
@@ -99,7 +106,7 @@ export const CLOUDS: TimeLayerSpec = {
   mode: 'ir',
   nightAlpha: 1,
   zIndex: 1,
-  archive: './clouds',
+  archive: `${DATA_BASE}/clouds`,
   credit: 'Wolken: © EUMETSAT (Geostationary Ring IR10.8, Multimission)',
   cutouts: COLOR_REGIONS,
 };
@@ -127,7 +134,7 @@ export const COLOR_EUROPE: TimeLayerSpec = {
   mode: 'color',
   nightAlpha: 0,
   zIndex: 2,
-  archive: './color',
+  archive: `${DATA_BASE}/color`,
   credit: 'Echtfarben: © EUMETSAT (Meteosat-12 GeoColour)',
 };
 
@@ -154,7 +161,7 @@ export const COLOR_AMERICA: TimeLayerSpec = {
   mode: 'color',
   nightAlpha: 0,
   zIndex: 2,
-  archive: './color-america',
+  archive: `${DATA_BASE}/color-america`,
   credit: 'Echtfarben Amerika: NOAA/NESDIS/STAR, GOES-19 GeoColor',
 };
 

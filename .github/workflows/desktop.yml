@@ -1,0 +1,49 @@
+# Windows-Programm (Erde.exe) bauen – nur auf Wunsch, wie bei Schienenland:
+# GitHub → Actions → „Windows-Programm bauen“ → „Run workflow“.
+# Ergebnis unter „Artifacts“: Erde-Windows (direkt startbare Erde.exe) und Erde-Installer (Setup).
+name: Windows-Programm bauen
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      # Baut die Web-App (Modus „desktop“: Archivdaten von GitHub Pages) und die Tauri-Hülle
+      - run: npx tauri build
+
+      - name: Erde.exe einpacken
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item src-tauri/target/release/erde.exe out/Erde.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Erde-Windows
+          path: out/Erde.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Erde-Installer
+          path: src-tauri/target/release/bundle/nsis/*.exe

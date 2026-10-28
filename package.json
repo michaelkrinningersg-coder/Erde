@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "fetch:sats": "node scripts/fetch-satellites.mjs"
+    "fetch:sats": "node scripts/fetch-satellites.mjs",
+    "build:desktop": "tsc --noEmit && vite build --mode desktop",
+    "tauri": "tauri"
   },
   "dependencies": {
     "astronomy-engine": "^2.1.19",
@@ -16,6 +18,7 @@
     "three": "^0.186.1"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.12.4",
     "@types/three": "^0.186.0",
     "typescript": "^5.9.3",
     "vite": "^8.3.5",

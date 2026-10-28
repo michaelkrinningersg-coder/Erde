@@ -113,11 +113,12 @@ immer Daten hat. JWST hat keine Bahndaten (steht am L2) → Näherung „1,5 Mio
 | M7 | Echtfarben Europa/Afrika (Meteosat-12, stündlich) | ✅ |
 | M7b | Echtfarben Amerika (GOES-19 GeoColor von NOAA, auf Längen/Breiten umgerechnet) | ✅ |
 | M7c | Zuhause-Knopf | ✅ |
-| M8 | Desktop-EXE (Tauri oder Electron) | geplant |
+| M8 | Windows-Programm (Tauri, gebaut auf Wunsch in GitHub Actions – wie bei Schienenland) | ✅ |
 | M9 | Handy (PWA oder Capacitor) | geplant |
 | M10 | Sonneneinstrahlung als Karte (W/m²) | optional |
 | — | Rakete zur ISS | eigenes Projekt |
 
 ## 7. Offene Punkte
 
-1. Desktop-Hülle: Welche habt ihr bei den anderen Apps benutzt – **Electron** oder **Tauri**?
+
+Derzeit keine – nächste Ideen stehen im Fahrplan (Handy, Sonneneinstrahlung, Rakete).
