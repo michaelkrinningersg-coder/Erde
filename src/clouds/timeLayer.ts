@@ -19,6 +19,7 @@ const WARM_FRAMES = 8; // so viele Zeitschritte in Abspielrichtung werden vorab 
 interface FrameEntry {
   state: 'loading' | 'ready' | 'failed';
   parts?: ImageBitmap[];
+  inner?: { bitmap: ImageBitmap; rect: Rectangle };
   lastUsed: number;
   failedAt?: number;
 }
@@ -86,7 +87,8 @@ export class TimeImageLayer {
   private readonly rect: Rectangle;
   private readonly credit: Credit;
   private readonly entries = new Map<number, FrameEntry>();
-  private readonly layers = new Map<number, ImageryLayer>();
+  /** Je angezeigtem Zeitpunkt: Hauptebene und ggf. Innenebene (Wolken im Echtfarben-Gebiet) */
+  private readonly layers = new Map<number, { main: ImageryLayer; inner?: ImageryLayer }>();
   private readonly callbacks = new Map<number, (r: ImageResponse) => void>();
   private readonly warmed = new Set<number>();
   /** Bilder im eigenen Archiv (GitHub Pages), Zeit in ms */
@@ -102,6 +104,13 @@ export class TimeImageLayer {
   private visible = true;
   /** Zusätzlicher Faktor für die Deckkraft (z. B. Ausblenden beim nahen Reinzoomen) */
   alphaScale = 1;
+  /** Nur Wolken: Sichtbarkeit der Innenebene am Tag (= 1 − Deckkraft des Echtfarbenbildes) */
+  innerDayAlpha = 1;
+
+  /** Wie stark diese Ebene gerade tatsächlich zu sehen ist (0…1) */
+  effectiveAlpha() {
+    return this.visible && this.shownFrame !== undefined && this.layers.size > 0 ? this.alphaScale : 0;
+  }
 
   onStatus?: (s: LayerStatus) => void;
 
@@ -145,7 +154,14 @@ export class TimeImageLayer {
   }
   set show(v: boolean) {
     this.visible = v;
-    for (const l of this.layers.values()) l.show = v && this.alphaScale > 0;
+    for (const l of this.allLayers()) l.show = v && this.alphaScale > 0;
+  }
+
+  private *allLayers() {
+    for (const { main, inner } of this.layers.values()) {
+      yield main;
+      if (inner) yield inner;
+    }
   }
 
   /** Frühestes Bild, das geladen werden darf (Rückspulgrenze) */
@@ -158,7 +174,10 @@ export class TimeImageLayer {
     try {
       const res = await fetch(`${this.spec.archive}/index.json`, { cache: 'no-cache' });
       if (!res.ok) return;
-      const idx: { frames: string[] } = await res.json();
+      const idx: { frames: string[]; rect?: number[] } = await res.json();
+      // Archiv mit anderem Ausschnitt (ältere Version) nicht verwenden
+      const r = this.spec.rect;
+      if (idx.rect && idx.rect.join() !== [r.west, r.south, r.east, r.north].join()) return;
       for (const f of idx.frames) this.archive.add(Date.parse(f));
       if (this.archive.size) this.latest = Math.max(this.latest, ...this.archive);
     } catch {
@@ -218,7 +237,11 @@ export class TimeImageLayer {
     else desired = []; // noch nichts da → bisherige Anzeige stehen lassen
 
     if (desired.length) this.applyLayers(desired);
-    else for (const l of this.layers.values()) l.show = this.visible && this.alphaScale > 0;
+    else
+      for (const l of this.allLayers()) {
+        l.show = this.visible && this.alphaScale > 0;
+        l.dayAlpha = this.innerDayAlpha;
+      }
     this.onStatus?.({
       shownFrame: this.shownFrame,
       latest: this.latest,
@@ -229,23 +252,36 @@ export class TimeImageLayer {
 
   private applyLayers(desired: [number, number][]) {
     const keep = new Set(desired.map(([f]) => f));
-    for (const [f, layer] of this.layers) {
+    for (const [f, l] of this.layers) {
       if (!keep.has(f)) {
-        this.viewer.imageryLayers.remove(layer, true);
+        this.viewer.imageryLayers.remove(l.main, true);
+        if (l.inner) this.viewer.imageryLayers.remove(l.inner, true);
         this.layers.delete(f);
       }
     }
     for (const [f, alpha] of desired) {
-      let layer = this.layers.get(f);
-      if (!layer) {
+      let l = this.layers.get(f);
+      if (!l) {
         const entry = this.entries.get(f)!;
         const provider = new BitmapImageryProvider(entry.parts!, this.rect, this.credit);
-        layer = new ImageryLayer(provider as unknown as ImageryProvider, { alpha, nightAlpha: this.spec.nightAlpha });
-        this.insertOrdered(layer, this.spec.zIndex * 1e13 + f);
-        this.layers.set(f, layer);
+        const main = new ImageryLayer(provider as unknown as ImageryProvider, { alpha, nightAlpha: this.spec.nightAlpha });
+        this.insertOrdered(main, this.spec.zIndex * 1e13 + f);
+        l = { main };
+        if (entry.inner) {
+          const p = new BitmapImageryProvider([entry.inner.bitmap], entry.inner.rect, this.credit);
+          l.inner = new ImageryLayer(p as unknown as ImageryProvider, { alpha, dayAlpha: this.innerDayAlpha, nightAlpha: 1 });
+          this.insertOrdered(l.inner, this.spec.zIndex * 1e13 + f + 1);
+        }
+        this.layers.set(f, l);
       }
-      layer.alpha = alpha * this.alphaScale;
-      layer.show = this.visible && this.alphaScale > 0;
+      const show = this.visible && this.alphaScale > 0;
+      l.main.alpha = alpha * this.alphaScale;
+      l.main.show = show;
+      if (l.inner) {
+        l.inner.alpha = alpha * this.alphaScale;
+        l.inner.dayAlpha = this.innerDayAlpha;
+        l.inner.show = show;
+      }
       this.entries.get(f)!.lastUsed = performance.now();
     }
     this.shownFrame = desired.reduce((a, b) => (b[1] >= a[1] ? b : a))[0];
@@ -285,12 +321,17 @@ export class TimeImageLayer {
         mode: this.spec.mode,
         splitX: this.spec.splitX,
         archiveUrl: this.archiveUrl(f),
+        cutout: this.spec.cutout,
       } satisfies ImageRequest);
     });
     this.building--;
     if (res.ok) {
       entry.state = 'ready';
       entry.parts = res.parts;
+      if (res.inner) {
+        const r = res.inner.rect;
+        entry.inner = { bitmap: res.inner.bitmap, rect: Rectangle.fromDegrees(r.west, r.south, r.east, r.north) };
+      }
       this.lastError = undefined;
       this.evict();
     } else {
@@ -310,6 +351,7 @@ export class TimeImageLayer {
     ready.sort((a, b) => a[1].lastUsed - b[1].lastUsed);
     for (const [f, e] of ready.slice(0, excess)) {
       e.parts?.forEach((b) => b.close());
+      e.inner?.bitmap.close();
       this.entries.delete(f);
     }
   }

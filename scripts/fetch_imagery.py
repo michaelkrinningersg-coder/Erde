@@ -34,7 +34,7 @@ PRODUCTS = {
         out="public/clouds", days=30,
     ),
     "color": dict(
-        layer="mtg_fd:rgb_geocolour", step_h=1, rect=(-36, -38, 64, 72),
+        layer="mtg_fd:rgb_geocolour", step_h=1, rect=(-48, -38, 64, 72),  # wie COLOR_RECT in src/config.ts
         width=4096, height=4096, tiles=(8, 8), fmt="image/jpeg", gray=False, quality=80,
         out="public/color", days=7,
     ),
@@ -128,6 +128,14 @@ def main() -> int:
 
     out = Path(args.out or P["out"])
     out.mkdir(parents=True, exist_ok=True)
+    # Ausschnitt geändert? Dann passen die alten Bilder nicht mehr → Archiv neu anfangen
+    idx_file = out / "index.json"
+    if idx_file.exists():
+        old = json.loads(idx_file.read_text()).get("rect")
+        if old is not None and list(old) != list(P["rect"]):
+            print("Ausschnitt geändert – altes Archiv wird geleert")
+            for f in out.glob("*.webp"):
+                f.unlink()
     latest = latest_available()
     oldest = latest - dt.timedelta(days=args.days)
     print(f"Neuestes Bild beim Dienst: {iso(latest)}")
@@ -168,7 +176,9 @@ def main() -> int:
             continue
         frames.append(iso(t))
     (out / "index.json").write_text(
-        json.dumps({"updated": iso(dt.datetime.now(dt.timezone.utc)), "stepHours": P["step_h"], "frames": frames})
+        json.dumps(
+            {"updated": iso(dt.datetime.now(dt.timezone.utc)), "stepHours": P["step_h"], "rect": list(P["rect"]), "frames": frames}
+        )
     )
     print(f"{len(frames)} Bilder im Archiv, {new} neu")
     return 0 if frames else 1

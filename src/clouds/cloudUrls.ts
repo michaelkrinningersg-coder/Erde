@@ -52,3 +52,23 @@ export const isoTime = (ms: number) => new Date(ms).toISOString().replace('.000Z
 
 /** Dateiname im Archiv, z. B. 20261028T1500Z.webp */
 export const archiveName = (ms: number) => `${isoTime(ms).replace(/[-:]/g, '').replace(/00Z$/, 'Z')}.webp`;
+
+type Rect = { west: number; south: number; east: number; north: number };
+const D = Math.PI / 180;
+const smooth = (a: number, b: number, x: number) => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+/**
+ * Wie stark das Echtfarbenbild an einer Stelle zählt (0…1): weich ausgeblendet zur Kante der
+ * Satellitensicht (Meteosat steht über 0°/0°) und zum Rand des Ausschnitts.
+ * Wird auch für die Infrarot-Wolken genutzt, die dort genau um diesen Anteil zurücktreten.
+ */
+export function colorWeight(lat: number, lon: number, rect: Rect): number {
+  const feather = 13; // Grad – breiter, weicher Übergang
+  if (lon <= rect.west || lon >= rect.east || lat <= rect.south || lat >= rect.north) return 0;
+  const disk = smooth(Math.cos(76 * D), Math.cos(64 * D), Math.cos(lat * D) * Math.cos(lon * D));
+  const edge = smooth(0, feather, Math.min(lat - rect.south, rect.north - lat, lon - rect.west, rect.east - lon));
+  return disk * edge;
+}

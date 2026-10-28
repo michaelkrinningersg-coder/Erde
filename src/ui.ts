@@ -6,6 +6,7 @@ import type { GlobeLayers } from './globe';
 import { AIRPORTS, type Flights } from './objects/flights';
 import type { Satellites } from './objects/satellites';
 import type { Sky } from './objects/sky';
+import type { SolarSystemView } from './solar/solarSystem';
 import type { TimeControl } from './time';
 
 type Child = Node | string | null | undefined | false;
@@ -82,6 +83,7 @@ export interface UiDeps {
   layers: GlobeLayers;
   clouds: TimeImageLayer;
   color: TimeImageLayer;
+  solar: SolarSystemView;
   sky: Sky;
   satellites: Satellites;
   flights: Flights;
@@ -90,7 +92,7 @@ export interface UiDeps {
 }
 
 export function buildUi(d: UiDeps) {
-  const { viewer, layers, clouds, color, sky, satellites, flights, camera, time } = d;
+  const { viewer, layers, clouds, color, solar, sky, satellites, flights, camera, time } = d;
   const body = document.getElementById('panel-body')!;
   const scene = viewer.scene;
 
@@ -145,9 +147,12 @@ export function buildUi(d: UiDeps) {
     e.preventDefault();
     camera.flyToMoon(sky.moon.entity);
   });
+  const solarBtn = h('button', { class: 'primary', textContent: '🪐 Sonnensystem ansehen' });
+  solarBtn.addEventListener('click', () => solar.open());
   const skySection = section(
     '☀️ Sonne, Mond & Planeten',
     true,
+    solarBtn,
     toggle('Sonne', true, (v) => (sky.showSunDisc = v)).row,
     toggle('Mond', true, (v) => (sky.showMoonDisc = v), moonBtn).row,
     group(
@@ -159,7 +164,10 @@ export function buildUi(d: UiDeps) {
     ),
     planetSizeRow(),
     toggle('James-Webb-Teleskop', true, (v) => (sky.jwst.entity.show = v)).row,
-    h('p', { class: 'hint', textContent: 'Planeten: Richtung stimmt, sie sind aber größer und näher gezeichnet, damit man sie sieht.' }),
+    h('p', {
+      class: 'hint',
+      textContent: 'Planeten: Richtung stimmt, sie sind aber größer und näher gezeichnet. Ganz weit rauszoomen öffnet das Sonnensystem.',
+    }),
   );
 
   // ── Satelliten ────────────────────────────────────────────────────────

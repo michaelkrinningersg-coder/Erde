@@ -52,7 +52,12 @@ export interface TimeLayerSpec {
   /** Eigenes Archiv (von GitHub Actions befüllt), relativ zur Seite */
   archive: string;
   credit: string;
+  /** Nur Wolken: Gebiet des Echtfarbenbildes, in dem die Wolken tagsüber zurücktreten */
+  cutout?: { west: number; south: number; east: number; north: number };
 }
+
+/** Ausschnitt des Echtfarbenbildes (Europa & Afrika) */
+const COLOR_RECT = { west: -48, south: -38, east: 64, north: 72 };
 
 /**
  * Wolken weltweit: EUMETSAT „Geostationary Ring IR10.8 µm – Multimission“.
@@ -78,6 +83,7 @@ export const CLOUDS: TimeLayerSpec = {
   zIndex: 1,
   archive: './clouds',
   credit: 'Wolken: © EUMETSAT (Geostationary Ring IR10.8, Multimission)',
+  cutout: COLOR_RECT,
 };
 
 /**
@@ -93,7 +99,7 @@ export const COLOR_EUROPE: TimeLayerSpec = {
   format: 'image/jpeg',
   stepMinutes: 60,
   typicalLatencyMinutes: 40,
-  rect: { west: -36, south: -38, east: 64, north: 72 },
+  rect: COLOR_RECT,
   width: 4096,
   height: 4096,
   tilesX: 8,

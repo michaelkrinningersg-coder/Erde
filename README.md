@@ -7,6 +7,7 @@ Interaktive 3D-Erde im Browser – für mich und meine Kinder.
 - **Tag/Nacht** mit echtem Sonnenstand, **Stadtlichter** auf der Nachtseite – sichtbar, wo der Himmel klar ist
 - **Satelliten** an ihrer echten Position: ISS, Tiangong, Hubble & weitere Weltraumteleskope, GPS, Galileo, Starlink-Beispiele; optional Sentinel und OneWeb
 - **Sonne, Mond, Planeten** (Marker in echter Richtung, vergrößert), James-Webb-Teleskop, **Flug zum Mond** mit echter Mondphase
+- **Sonnensystem-Ansicht** (kindgerecht zusammengerückt, Planeten in echter Richtung, anklickbar, Zeitraffer bis 1 Monat/s) – per Knopf oder einfach ganz weit rauszoomen
 - **Fokuspunkt**: Doppelklick auf die Erde → die Erde dreht sich um diesen Punkt
 - **Flugzeug-Simulation** zwischen 24 Städten (z. B. Frankfurt ⇄ New York)
 - Jedes Objekt einzeln ein-/ausblendbar
@@ -42,6 +43,7 @@ Beim allerersten Lauf füllt sich das Wolkenarchiv schrittweise (60 Bilder pro L
 | `src/objects/satellites.ts` | Satelliten (SGP4 mit satellite.js), Bahnlinien |
 | `src/objects/sky.ts` | Sonne, Mond, Planeten, James Webb (astronomy-engine) |
 | `src/objects/flights.ts` | Flugsimulation auf dem Großkreis |
+| `src/solar/solarSystem.ts` | Sonnensystem-Ansicht (Three.js) |
 | `src/camera.ts` | Fokuspunkt, „Blick aus dem All“, Mondflug |
 | `src/ui.ts`, `src/style.css` | Bedienfeld, Zeitleiste |
 | `scripts/fetch_imagery.py` | Bildarchiv für Wolken und Echtfarben (läuft in GitHub Actions) |
@@ -54,5 +56,6 @@ Beim allerersten Lauf füllt sich das Wolkenarchiv schrittweise (60 Bilder pro L
 - Erde bei Tag: Sentinel-2 cloudless 2025 by EOX IT Services GmbH (CC BY-NC-SA 4.0, nicht-kommerziell)
 - Erde bei Nacht: NASA Black Marble (VIIRS) via NASA GIBS
 - Mond: NASA LRO / CGI Moon Kit (Public Domain)
+- Planeten-Texturen (Sonnensystem): [Solar System Scope](https://www.solarsystemscope.com/textures/) (CC BY 4.0)
 - Bahndaten: CelesTrak
-- 3D-Globus: [CesiumJS](https://cesium.com/platform/cesiumjs/) (Apache 2.0)
+- 3D-Globus: [CesiumJS](https://cesium.com/platform/cesiumjs/) (Apache 2.0), Sonnensystem: [three.js](https://threejs.org) (MIT)

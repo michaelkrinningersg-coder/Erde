@@ -53,12 +53,15 @@ bauen), Unreal (schwer, Desktop-only).
 
 ### Echtfarben Europa & Afrika – Meteosat-12 „GeoColour“
 
-- Echtes Farbbild vom Tag (Wolken, Sand, Schnee, Rauch), Ausschnitt 36° W – 64° O, 38° S – 72° N.
+- Echtes Farbbild vom Tag (Wolken, Sand, Schnee, Rauch), Ausschnitt 48° W – 64° O, 38° S – 72° N.
 - Stündlich im Archiv (7 Tage, ~1,9 MB pro Bild, 4096 × 4096 px ≈ 2–3 km), nur auf der Tagseite.
 - Rand weich ausgeblendet (zum Ausschnittsrand und zur Kante der Satellitensicht), darunter
   das weltweite Infrarot-Wolkenbild → keine harte Kante.
 - Beim nahen Reinzoomen (unter ~700 km Höhe) blendet es aus, damit die 10-m-Karte sichtbar wird.
-- Feinschliff offen: Im Übergangsstreifen liegen Farb- und Infrarot-Wolken übereinander (leicht milchig).
+- Kein doppelter Wolkenschleier: Im Übergang treten die Infrarot-Wolken tagsüber genau um den Anteil
+  zurück, den das Farbbild übernimmt (gleiche Gewichtsfunktion für beide; nachts volle Infrarot-Wolken).
+- Westrand bis 48° W mit 13° breitem Übergang, damit z. B. Sonnenglanz auf dem Atlantik (echtes
+  Phänomen im Satellitenbild) nicht an einer Kante abreißt.
 
 ### Erdoberfläche
 
@@ -96,7 +99,7 @@ immer Daten hat. JWST hat keine Bahndaten (steht am L2) → Näherung „1,5 Mio
 | M3 | Satelliten mit Bahnen, einzeln schaltbar | ✅ |
 | M4 | Sonne, Mond (zoombar), Planeten-Marker, James Webb | ✅ |
 | M5 | Fokuspunkt, „Blick aus dem All“, Flugzeug-Simulation | ✅ |
-| M6 | **Sonnensystem-Ansicht** (rauszoomen, Planeten anschauen) | als Nächstes |
+| M6 | Sonnensystem-Ansicht (kindgerecht zusammengerückt, echte Richtungen) | ✅ |
 | M7 | Echtfarben Europa/Afrika (Meteosat-12, stündlich) | ✅ |
 | M7b | Echtfarben Amerika (GOES GeoColor), 10-Minuten-Schritte für die letzten Stunden | geplant |
 | M8 | Desktop-EXE (Tauri oder Electron) | geplant |
@@ -108,4 +111,3 @@ immer Daten hat. JWST hat keine Bahndaten (steht am L2) → Näherung „1,5 Mio
 
 1. Desktop-Hülle: Welche habt ihr bei den anderen Apps benutzt – **Electron** oder **Tauri**?
 2. „Zuhause“-Knopf: Soll ein fester Ort (euer Wohnort) als Fokusziel hinterlegt werden?
-3. Sonnensystem-Ansicht: eher „echte Abstände, Planeten vergrößert“ oder „kindgerecht zusammengerückt“?

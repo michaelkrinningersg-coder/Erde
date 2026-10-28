@@ -416,3 +416,146 @@ details[open] > summary::before {
     font-size: 13px;
   }
 }
+
+/* ── Sonnensystem ───────────────────────────────────────────────────── */
+#solar {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  background: #000;
+}
+
+#solar canvas {
+  display: block;
+}
+
+body.solar-mode #panel,
+body.solar-mode #timebar,
+body.solar-mode #status,
+body.solar-mode #focus-chip {
+  display: none;
+}
+
+.solar-labels {
+  position: absolute;
+  inset: 0;
+}
+
+.solar-label {
+  color: #fff;
+  font: 700 14px system-ui, sans-serif;
+  text-shadow: 0 0 4px #000, 0 0 8px #000;
+  white-space: nowrap;
+  cursor: pointer;
+  pointer-events: auto;
+  padding: 2px 6px;
+  border-radius: 8px;
+}
+
+.solar-label:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.solar-label[data-id='earth'] {
+  color: #7fdcff;
+}
+
+.solar-label[data-id='sun'] {
+  color: var(--accent);
+}
+
+.solar-head {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: 320px;
+  padding: 12px 14px;
+  z-index: 2;
+  color-scheme: dark;
+}
+
+.solar-head h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+
+.solar-head p {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.solar-speeds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.solar-speeds button {
+  font-size: 13px;
+  padding: 4px 8px;
+}
+
+.solar-date {
+  margin-top: 8px;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.solar-info {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 300px;
+  padding: 12px 14px;
+  z-index: 2;
+  color-scheme: dark;
+}
+
+.solar-info h3 {
+  margin: 0 0 6px;
+  font-size: 20px;
+}
+
+.solar-info p {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.solar-info table {
+  width: 100%;
+  font-size: 13px;
+  border-collapse: collapse;
+}
+
+.solar-info th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 400;
+  padding: 2px 8px 2px 0;
+}
+
+.solar-info .close {
+  float: right;
+}
+
+@media (max-width: 700px) {
+  .solar-head {
+    left: 8px;
+    right: 8px;
+    width: auto;
+  }
+
+  .solar-head p {
+    display: none;
+  }
+
+  .solar-info {
+    top: auto;
+    bottom: 8px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+  }
+}
