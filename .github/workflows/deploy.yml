@@ -40,6 +40,7 @@ jobs:
       - run: npm ci
       - run: pip install pillow==11.3.0
 
+      # Zeitbudgets: Jeder Lauf veröffentlicht sicher; ein leeres Archiv füllt sich über mehrere Läufe.
       # Wolkenarchiv und Bahndaten zwischen den Läufen aufbewahren (nicht im Git-Verlauf)
       - name: Daten-Archiv wiederherstellen
         uses: actions/cache/restore@v4
@@ -53,15 +54,18 @@ jobs:
           restore-keys: data-
 
       - name: Neue Wolkenbilder holen (weltweit, alle 3 h, 30 Tage)
-        run: python scripts/fetch_imagery.py ir --max-new 60
+        run: python scripts/fetch_imagery.py ir --max-minutes 8
+        timeout-minutes: 10
         continue-on-error: true # Archiv bleibt nutzbar, die App fällt sonst auf EUMETSAT direkt zurück
 
       - name: Neue Echtfarbenbilder holen (Europa/Afrika, stündlich, 5 Tage)
-        run: python scripts/fetch_imagery.py color --max-new 40
+        run: python scripts/fetch_imagery.py color --max-minutes 6
+        timeout-minutes: 10
         continue-on-error: true
 
       - name: Neue Echtfarbenbilder holen (Amerika, stündlich, 5 Tage)
-        run: pip install numpy==2.3.4 && python scripts/fetch_imagery.py america --max-new 40
+        run: pip install numpy==2.3.4 && python scripts/fetch_imagery.py america --max-minutes 6
+        timeout-minutes: 10
         continue-on-error: true
 
       - name: Satelliten-Bahndaten aktualisieren (alle 6 h, CelesTrak bittet um sparsame Abfragen)

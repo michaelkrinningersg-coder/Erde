@@ -167,6 +167,7 @@ def main() -> int:
     ap.add_argument("--out", help="Zielordner (Standard je Produkt)")
     ap.add_argument("--days", type=int, help="Archivdauer in Tagen (Standard je Produkt)")
     ap.add_argument("--max-new", type=int, default=60, help="höchstens so viele neue Bilder pro Lauf")
+    ap.add_argument("--max-minutes", type=float, default=0, help="Zeitbudget pro Lauf (0 = unbegrenzt)")
     args = ap.parse_args()
     P.update(PRODUCTS[args.product])
     STEP = dt.timedelta(hours=P["step_h"])
@@ -194,12 +195,16 @@ def main() -> int:
 
     name = lambda t: t.strftime("%Y%m%dT%H%MZ") + ".webp"  # noqa: E731
     new = 0
+    deadline = time.time() + args.max_minutes * 60 if args.max_minutes else float("inf")
     for t in wanted:  # neueste zuerst
         f = out / name(t)
         if f.exists():
             continue
         if new >= args.max_new:
             print(f"Limit von {args.max_new} neuen Bildern erreicht – Rest beim nächsten Lauf")
+            break
+        if time.time() > deadline:
+            print(f"Zeitbudget von {args.max_minutes:g} min erreicht – Rest beim nächsten Lauf")
             break
         try:
             start = time.time()
