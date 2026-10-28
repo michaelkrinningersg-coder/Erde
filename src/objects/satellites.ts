@@ -12,6 +12,7 @@ import {
   LabelStyle,
   NearFarScalar,
   PolylineGlowMaterialProperty,
+  VelocityOrientationProperty,
   VerticalOrigin,
   type Viewer,
 } from 'cesium';
@@ -35,6 +36,7 @@ export interface SatItem {
   name: string;
   entity: Entity;
   orbit: Entity;
+  satrec: SatRec;
 }
 
 export interface SatGroup {
@@ -89,6 +91,20 @@ function describe(o: Omm, group: string) {
       <tr><th>Bahndaten vom</th><td>${new Date(String(o.EPOCH).slice(0, 23) + 'Z').toLocaleString('de-DE')}</td></tr>
     </tbody></table>`;
 }
+
+/** 3D-Modelle (Blender, tools/blender/raumfahrt.py) je NORAD-Nummer; Länge in Metern für den Kameraabstand */
+const MODELS: Record<string, { file: string; size: number }> = {
+  '25544': { file: 'iss', size: 110 },
+  '48274': { file: 'tiangong', size: 55 },
+  '20580': { file: 'hubble', size: 17 },
+  '25867': { file: 'chandra', size: 20 },
+  '25989': { file: 'xmm', size: 16 },
+  '28485': { file: 'swift', size: 7 },
+  '33053': { file: 'fermi', size: 10 },
+  '38358': { file: 'nustar', size: 13 },
+};
+/** Ab dieser Entfernung (m) wird statt des Modells das Symbol gezeigt */
+const MODEL_RANGE = 3e6;
 
 const prettyName = (o: Omm) => o.DISPLAY_NAME ?? o.OBJECT_NAME.replace(/\s+\(.*\)$/, '').trim();
 
@@ -145,15 +161,28 @@ export class Satellites {
     }, false);
 
     const color = Color.fromCssColorString(g.color);
+    const model = MODELS[String(o.NORAD_CAT_ID)];
     const entity = new Entity({
       id: `sat-${o.NORAD_CAT_ID}`,
       name,
       position,
-      viewFrom: new Cartesian3(0, -1_800_000, 900_000),
+      // Mitfliegen: mit Modell ganz nah dran (schräg hinten oben), sonst aus der Ferne
+      viewFrom: model ? new Cartesian3(-model.size * 2.2, -model.size * 1.6, model.size * 0.9) : new Cartesian3(0, -1_800_000, 900_000),
       description: describe(o, g.name),
+      // +X des Modells zeigt in Flugrichtung, +Z von der Erde weg
+      orientation: model ? new VelocityOrientationProperty(position) : undefined,
+      model: model
+        ? {
+            uri: `./models/${model.file}.glb`,
+            minimumPixelSize: 72,
+            maximumScale: 20000,
+            distanceDisplayCondition: new DistanceDisplayCondition(0, MODEL_RANGE),
+          }
+        : undefined,
       billboard: {
         image: satelliteIcon(g.color, isIss ? 34 : important ? 26 : 20, isIss || important),
         scaleByDistance: new NearFarScalar(1.5e6, 1.4, 6e7, 0.6),
+        distanceDisplayCondition: model ? new DistanceDisplayCondition(MODEL_RANGE, Number.MAX_VALUE) : undefined,
       },
       label: {
         text: name,
@@ -200,7 +229,7 @@ export class Satellites {
 
     this.viewer.entities.add(entity);
     this.viewer.entities.add(orbit);
-    return { id: String(o.NORAD_CAT_ID), name, entity, orbit };
+    return { id: String(o.NORAD_CAT_ID), name, entity, orbit, satrec };
   }
 
   setGroupVisible(group: SatGroup, show: boolean) {

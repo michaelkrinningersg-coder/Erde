@@ -593,3 +593,204 @@ body.solar-mode #topright {
     width: auto;
   }
 }
+
+/* ── Eigene Symbole, kompakte Knöpfe (Ergänzungen) ───────────────────── */
+.ico {
+  flex: none;
+  display: block;
+}
+
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+#panel h1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+summary::before {
+  content: none;
+}
+
+details > summary .ico {
+  color: var(--accent);
+}
+
+.row .ico {
+  color: var(--muted);
+}
+
+.row input:checked ~ .ico {
+  color: var(--text);
+}
+
+.icon-btn {
+  min-width: 38px;
+  min-height: 36px;
+  padding: 4px 10px;
+}
+
+button.mini {
+  min-height: 28px;
+  min-width: 28px;
+  padding: 3px;
+  background: transparent;
+  border-color: transparent;
+}
+
+button.mini:hover,
+button.mini.on {
+  border-color: var(--glass-border);
+}
+
+button.mini.on {
+  color: var(--accent);
+  background: rgba(255, 209, 102, 0.12);
+}
+
+button.wide,
+button.go {
+  width: 100%;
+  min-height: 40px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #ffd166, #f8961e);
+  color: #1b1b1b;
+  border: none;
+}
+
+.caret {
+  transition: transform 0.15s;
+}
+
+.group.open .caret {
+  transform: rotate(90deg);
+}
+
+.row.slider input[type='range'] {
+  flex: 1;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.tabs .tab {
+  flex: 1;
+}
+
+.tab.on {
+  background: rgba(255, 209, 102, 0.18);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.start-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.start-form .row.wrap select {
+  flex: 1;
+  min-width: 0;
+}
+
+.msg {
+  color: #ffb4a2;
+  font-size: 13px;
+  min-height: 0;
+}
+
+.msg:empty {
+  display: none;
+}
+
+/* Statusbox */
+.status-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  cursor: help;
+}
+
+.status-line .ico {
+  color: var(--muted);
+}
+
+/* Kompass / Einnorden */
+#north-btn {
+  position: absolute;
+  right: 12px;
+  bottom: 120px;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  padding: 0;
+  z-index: 10;
+}
+
+#north-btn .ico {
+  transform: rotate(var(--heading, 0deg));
+  transition: transform 0.2s;
+}
+
+/* Raketen-Anzeige */
+#mission-hud {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 112px;
+  padding: 8px 16px;
+  font-size: 15px;
+  z-index: 10;
+  white-space: nowrap;
+  max-width: calc(100% - 24px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#mission-hud .big {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.dialog h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.solar-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 700px) {
+  #north-btn {
+    bottom: 150px;
+    right: 8px;
+  }
+
+  #mission-hud {
+    bottom: 150px;
+    font-size: 13px;
+    white-space: normal;
+  }
+}

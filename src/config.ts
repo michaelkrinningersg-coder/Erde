@@ -65,6 +65,11 @@ export interface TimeLayerSpec {
   region?: number;
   /** Nur Wolken: Echtfarben-Gebiete, in denen die Wolken tagsüber zurücktreten */
   cutouts?: ColorRegion[];
+  /**
+   * Dichtes Zeitfenster am Ende: die letzten `hours` Stunden im `minutes`-Takt, beim Start direkt
+   * beim Anbieter geladen (in der hier angegebenen, kleineren Größe – damit es schnell geht).
+   */
+  dense?: { minutes: number; hours: number; width: number; height: number; tilesX: number; tilesY: number };
 }
 
 export type Rect = { west: number; south: number; east: number; north: number };
@@ -126,6 +131,7 @@ export const COLOR_EUROPE: TimeLayerSpec = {
   typicalLatencyMinutes: 40,
   rect: COLOR_REGIONS[0].rect,
   region: 0,
+  dense: { minutes: 10, hours: 6, width: 2048, height: 2048, tilesX: 4, tilesY: 4 },
   width: 4096,
   height: 4096,
   tilesX: 8,
@@ -153,6 +159,7 @@ export const COLOR_AMERICA: TimeLayerSpec = {
   typicalLatencyMinutes: 40,
   rect: COLOR_REGIONS[1].rect,
   region: 1,
+  dense: { minutes: 10, hours: 6, width: 2048, height: 2048, tilesX: 1, tilesY: 1 },
   width: 3072,
   height: 3072,
   tilesX: 1,

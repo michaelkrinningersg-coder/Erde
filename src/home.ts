@@ -115,7 +115,7 @@ export class HomeControl {
   /** Kamera fliegt nach Hause; die Erde dreht sich danach um diesen Punkt */
   goHome() {
     if (!this.home) return false;
-    this.camera.focus({ name: `🏠 ${this.home.name}`, lat: this.home.lat, lon: this.home.lon, range: 1.2e6 });
+    this.camera.focus({ name: this.home.name, lat: this.home.lat, lon: this.home.lon, range: 1.2e6 });
     return true;
   }
 

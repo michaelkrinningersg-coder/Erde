@@ -41,8 +41,7 @@ ctx.onmessage = async (ev: MessageEvent<ImageRequest>) => {
   const req = ev.data;
   try {
     const result = await buildTexture(req);
-    const transfer = result.ok ? [...result.parts, ...result.inner.map((i) => i.bitmap)] : [];
-    ctx.postMessage(result, transfer);
+    ctx.postMessage(result, result.ok ? [...result.parts, ...result.inner.map((i) => i.bitmap)] : []);
   } catch (e) {
     ctx.postMessage({ id: req.id, ok: false, error: String((e as Error)?.message ?? e) } satisfies ImageResponse);
   }
@@ -120,8 +119,53 @@ async function buildTexture(req: ImageRequest): Promise<ImageResponse> {
  */
 async function splitRegions(img: ImageData, rect: Rect, regions: ColorRegion[]): Promise<Inner[]> {
   const W = img.width;
-  const H = img.height;
   const d = img.data;
+  const maps = weightMaps(rect, W, img.height, regions);
+  // Erst die Innenbilder aus der ursprünglichen Deckkraft …
+  const inner = await Promise.all(
+    maps.boxes.map(async (b, k) => {
+      const bw = b.x1 - b.x0;
+      const bh = b.y1 - b.y0;
+      const out = new ImageData(bw, bh);
+      const o = out.data;
+      const wk = maps.per[k];
+      for (let y = 0; y < bh; y++) {
+        for (let x = 0, q = y * bw; x < bw; x++, q++) {
+          if (!wk[q]) continue;
+          const i = ((y + b.y0) * W + x + b.x0) * 4;
+          const j = q * 4;
+          o[j] = d[i];
+          o[j + 1] = d[i + 1];
+          o[j + 2] = d[i + 2];
+          o[j + 3] = (d[i + 3] * wk[q]) / 255;
+        }
+      }
+      const c = new OffscreenCanvas(bw, bh);
+      c.getContext('2d')!.putImageData(out, 0, 0);
+      return { bitmap: await createImageBitmap(c, { imageOrientation: 'flipY' }), rect: b.rect };
+    }),
+  );
+  // … dann im Hauptbild um die Summe der Gewichte zurücknehmen
+  const total = maps.total;
+  for (let p = 0, i = 3; p < total.length; p++, i += 4) if (total[p]) d[i] = (d[i] * (255 - total[p])) / 255;
+  return inner;
+}
+
+interface WeightMaps {
+  /** Summe aller Gebietsgewichte je Pixel des Gesamtbilds (0…255) */
+  total: Uint8Array;
+  /** Gewicht je Gebiet, nur in dessen Ausschnitt (0…255) */
+  per: Uint8Array[];
+  boxes: { x0: number; x1: number; y0: number; y1: number; rect: Rect }[];
+}
+
+const weightCache = new Map<string, WeightMaps>();
+
+/** Gewichtskarten hängen nur von Ort und Bildgröße ab → einmal rechnen, dann wiederverwenden */
+function weightMaps(rect: Rect, W: number, H: number, regions: ColorRegion[]): WeightMaps {
+  const key = JSON.stringify([rect, W, H, regions]);
+  const hit = weightCache.get(key);
+  if (hit) return hit;
   const px = (rect.east - rect.west) / W;
   const py = (rect.north - rect.south) / H;
   const boxes = regions.map(({ rect: c }) => {
@@ -129,46 +173,26 @@ async function splitRegions(img: ImageData, rect: Rect, regions: ColorRegion[]):
     const x1 = Math.min(W, Math.ceil((c.east - rect.west) / px));
     const y0 = Math.max(0, Math.floor((rect.north - c.north) / py));
     const y1 = Math.min(H, Math.ceil((rect.north - c.south) / py));
-    return { x0, x1, y0, y1, out: new ImageData(x1 - x0, y1 - y0) };
+    return { x0, x1, y0, y1, rect: { west: rect.west + x0 * px, east: rect.west + x1 * px, north: rect.north - y0 * py, south: rect.north - y1 * py } };
   });
-  const yMin = Math.min(...boxes.map((b) => b.y0));
-  const yMax = Math.max(...boxes.map((b) => b.y1));
-  const xMin = Math.min(...boxes.map((b) => b.x0));
-  const xMax = Math.max(...boxes.map((b) => b.x1));
+  const total = new Uint8Array(W * H);
+  const per = boxes.map((b) => new Uint8Array((b.x1 - b.x0) * (b.y1 - b.y0)));
   const w: number[] = [];
-  for (let y = yMin; y < yMax; y++) {
-    const lat = rect.north - (y + 0.5) * py;
-    for (let x = xMin; x < xMax; x++) {
-      const lon = rect.west + (x + 0.5) * px;
-      regionWeights(lat, lon, regions, w);
-      const i = (y * W + x) * 4;
-      const a = d[i + 3];
-      let sum = 0;
-      for (let k = 0; k < boxes.length; k++) {
-        const b = boxes[k];
-        if (x < b.x0 || x >= b.x1 || y < b.y0 || y >= b.y1) continue;
-        const o = b.out.data;
-        const j = ((y - b.y0) * (b.x1 - b.x0) + (x - b.x0)) * 4;
-        o[j] = d[i];
-        o[j + 1] = d[i + 1];
-        o[j + 2] = d[i + 2];
-        o[j + 3] = a * w[k];
-        sum += w[k];
+  for (const [k, b] of boxes.entries()) {
+    for (let y = b.y0; y < b.y1; y++) {
+      const lat = rect.north - (y + 0.5) * py;
+      for (let x = b.x0; x < b.x1; x++) {
+        const lon = rect.west + (x + 0.5) * px;
+        regionWeights(lat, lon, regions, w);
+        const v = Math.round(w[k] * 255);
+        per[k][(y - b.y0) * (b.x1 - b.x0) + (x - b.x0)] = v;
+        total[y * W + x] = Math.min(255, total[y * W + x] + v);
       }
-      d[i + 3] = a * (1 - sum);
     }
   }
-  return Promise.all(
-    boxes.map(async (b) => {
-      const c = new OffscreenCanvas(b.x1 - b.x0, b.y1 - b.y0);
-      c.getContext('2d')!.putImageData(b.out, 0, 0);
-      return {
-        bitmap: await createImageBitmap(c, { imageOrientation: 'flipY' }),
-        // Tatsächliches (auf Pixel gerundetes) Gebiet
-        rect: { west: rect.west + b.x0 * px, east: rect.west + b.x1 * px, north: rect.north - b.y0 * py, south: rect.north - b.y1 * py },
-      };
-    }),
-  );
+  const maps = { total, per, boxes };
+  weightCache.set(key, maps);
+  return maps;
 }
 
 /**
@@ -181,8 +205,28 @@ function reprojectGeos(bmp: ImageBitmap, satLon: number, rect: Rect, W: number, 
   const sg = src.getContext('2d', { willReadFrequently: true })!;
   sg.drawImage(bmp, 0, 0);
   const s = sg.getImageData(0, 0, N, N).data;
+  const map = geosMap(N, satLon, rect, W, H);
   const out = new ImageData(W, H);
   const o = out.data;
+  for (let p = 0, j = 0; p < map.length; p++, j += 4) {
+    const i = map[p];
+    if (i < 0) continue;
+    o[j] = s[i];
+    o[j + 1] = s[i + 1];
+    o[j + 2] = s[i + 2];
+    o[j + 3] = 255;
+  }
+  return out;
+}
+
+const geosCache = new Map<string, Int32Array>();
+
+/** Für jedes Zielpixel: Index im Satellitenbild (−1 = Rückseite der Erde). Einmal rechnen, dann wiederverwenden. */
+function geosMap(N: number, satLon: number, rect: Rect, W: number, H: number): Int32Array {
+  const key = JSON.stringify([N, satLon, rect, W, H]);
+  const hit = geosCache.get(key);
+  if (hit) return hit;
+  const map = new Int32Array(W * H).fill(-1);
   const D = Math.PI / 180;
   const req = 6378137;
   const rpol = 6356752.31414;
@@ -204,15 +248,11 @@ function reprojectGeos(bmp: ImageBitmap, satLon: number, rect: Rect, W: number, 
       const col = Math.floor(((sxScan + ext) / (2 * ext)) * N);
       const row = Math.floor(((ext - syScan) / (2 * ext)) * N);
       if (col < 0 || col >= N || row < 0 || row >= N) continue;
-      const i = (row * N + col) * 4;
-      const j = (y * W + x) * 4;
-      o[j] = s[i];
-      o[j + 1] = s[i + 1];
-      o[j + 2] = s[i + 2];
-      o[j + 3] = 255;
+      map[y * W + x] = (row * N + col) * 4;
     }
   }
-  return out;
+  geosCache.set(key, map);
+  return map;
 }
 
 const smoothstep = (a: number, b: number, x: number) => {
@@ -287,13 +327,15 @@ function toCloudLayer(d: Uint8ClampedArray, W: number, H: number) {
 
 /** Echtfarben: Deckkraft = Gewicht dieses Gebiets (gleiche Gewichtung wie bei der Aufteilung der Wolken) */
 function fadeColorEdges(d: Uint8ClampedArray, W: number, H: number, rect: Rect, regions: ColorRegion[], region: number) {
-  const w: number[] = [];
+  const maps = weightMaps(rect, W, H, regions);
+  const b = maps.boxes[region];
+  const wk = maps.per[region];
+  const bw = b.x1 - b.x0;
   for (let y = 0; y < H; y++) {
-    const lat = rect.north - ((y + 0.5) / H) * (rect.north - rect.south);
     for (let x = 0, i = y * W * 4; x < W; x++, i += 4) {
-      const lon = rect.west + ((x + 0.5) / W) * (rect.east - rect.west);
-      const noData = Math.max(d[i], d[i + 1], d[i + 2]) < 4 ? 0 : 1;
-      d[i + 3] = 255 * regionWeights(lat, lon, regions, w)[region] * noData;
+      const inside = x >= b.x0 && x < b.x1 && y >= b.y0 && y < b.y1;
+      const w = inside ? wk[(y - b.y0) * bw + (x - b.x0)] : 0;
+      d[i + 3] = Math.max(d[i], d[i + 1], d[i + 2]) < 4 ? 0 : w;
     }
   }
 }

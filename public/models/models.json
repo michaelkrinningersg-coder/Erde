@@ -1,0 +1,47 @@
+{
+  "iss": {
+    "length_m": 81.75,
+    "span_m": 109.17,
+    "tris": 9147
+  },
+  "tiangong": {
+    "length_m": 55.0,
+    "span_m": 39.44,
+    "tris": 2478
+  },
+  "hubble": {
+    "length_m": 16.75,
+    "span_m": 10.1,
+    "tris": 1182
+  },
+  "jwst": {
+    "length_m": 16.2,
+    "span_m": 21.21,
+    "tris": 936
+  },
+  "chandra": {
+    "length_m": 16.14,
+    "span_m": 19.55,
+    "tris": 810
+  },
+  "fermi": {
+    "length_m": 2.91,
+    "span_m": 9.75,
+    "tris": 852
+  },
+  "swift": {
+    "length_m": 5.9,
+    "span_m": 6.4,
+    "tris": 316
+  },
+  "nustar": {
+    "length_m": 12.55,
+    "span_m": 5.05,
+    "tris": 3972
+  },
+  "xmm": {
+    "length_m": 11.4,
+    "span_m": 16.12,
+    "tris": 624
+  }
+}

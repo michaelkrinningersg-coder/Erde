@@ -153,7 +153,7 @@ export class Sky {
       }, false),
       description:
         '<p>Das größte Weltraumteleskop. Es steht etwa 1,5 Millionen km von der Erde entfernt – immer auf der Seite, die von der Sonne abgewandt ist (Lagrangepunkt L2). Die Position ist eine Näherung.</p>',
-      billboard: { image: planetIcon('jwst', { colors: ['#ffe08a', '#c79a1e'], size: 18 }) },
+      model: { uri: './models/jwst.glb', minimumPixelSize: 64, maximumScale: 1e9 },
       label: {
         text: 'James Webb\n1,5 Mio. km',
         font: 'bold 14px system-ui, sans-serif',

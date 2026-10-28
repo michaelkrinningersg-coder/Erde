@@ -4,6 +4,7 @@ import { CSS2DObject, CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRe
 import * as Astronomy from 'astronomy-engine';
 import { ClockRange, JulianDate, type Viewer } from 'cesium';
 import { PLANETS } from '../objects/sky';
+import { icon, type IconName } from '../svgIcons';
 import type { TimeControl } from '../time';
 
 // Kindgerechte Sonnensystem-Ansicht: Die Planeten stehen in ihrer ECHTEN Richtung um die Sonne
@@ -35,12 +36,12 @@ const BODIES: BodySpec[] = [
   { id: 'neptune', name: 'Neptun', body: Astronomy.Body.Neptune, texture: 'neptune', radius: 2.0, orbit: 81, dayHours: 16.1, tilt: 28.3, fact: factOf('neptune') },
 ];
 
-const SPEEDS: [string, number][] = [
-  ['⏸', 0],
-  ['▶ Echtzeit', 1],
-  ['1 Tag/s', 86400],
-  ['1 Woche/s', 7 * 86400],
-  ['1 Monat/s', 30 * 86400],
+const SPEEDS: [IconName, string, string, number][] = [
+  ['pause', '', 'Anhalten', 0],
+  ['play', '', 'Echtzeit', 1],
+  ['forward', 'Tag', '1 Tag pro Sekunde', 86400],
+  ['fast', 'Woche', '1 Woche pro Sekunde', 7 * 86400],
+  ['fast', 'Monat', '1 Monat pro Sekunde', 30 * 86400],
 ];
 
 const AU_KM = 149_597_870.7;
@@ -160,17 +161,22 @@ export class SolarSystemView {
     // Bedienelemente
     const head = document.createElement('div');
     head.className = 'solar-head glass';
-    head.innerHTML = '<h2>🪐 Sonnensystem</h2><p>Die Planeten stehen dort, wo sie gerade wirklich sind – nur viel näher zusammen und größer gezeichnet.</p>';
+    head.title = 'Die Planeten stehen dort, wo sie gerade wirklich sind – nur viel näher zusammen und größer gezeichnet.';
+    const h2 = document.createElement('h2');
+    h2.append(icon('solar', 22), 'Sonnensystem');
+    head.append(h2);
     const back = document.createElement('button');
-    back.className = 'primary';
-    back.textContent = '🌍 Zurück zur Erde';
+    back.className = 'wide';
+    back.title = 'Zurück zur Erde';
+    back.append(icon('globe', 18), 'Zurück zur Erde');
     back.addEventListener('click', () => this.close());
     head.append(back);
     this.speedBar = document.createElement('div');
     this.speedBar.className = 'solar-speeds';
-    for (const [label, m] of SPEEDS) {
+    for (const [ico, label, tip, m] of SPEEDS) {
       const b = document.createElement('button');
-      b.textContent = label;
+      b.append(icon(ico, 16), label);
+      b.title = tip;
       b.dataset.speed = String(m);
       b.addEventListener('click', () => this.time.setSpeed(m));
       this.speedBar.append(b);
@@ -320,14 +326,16 @@ export class SolarSystemView {
     }
     if (id === 'earth') title = 'Erde';
     const html =
-      `<button class="small ghost close" title="Schließen">✕</button><h3>${title}</h3><p>${text}</p>` +
+      `<button class="mini close" title="Schließen"></button><h3>${title}</h3><p>${text}</p>` +
       (rows.length
         ? `<table>${rows.map((r) => `<tr><th>${r.split(':')[0]}</th><td>${r.split(':').slice(1).join(':')}</td></tr>`).join('')}</table>`
         : '') +
-      (id === 'earth' ? '<button class="primary go-earth">🌍 Zur Erde fliegen</button>' : '');
+      (id === 'earth' ? '<button class="wide go-earth" title="Zurück zur Erde"><span></span>Zur Erde fliegen</button>' : '');
     if (this.info.dataset.html === html) return;
     this.info.dataset.html = html;
     this.info.innerHTML = html;
+    this.info.querySelector('.close')!.append(icon('close', 16));
+    this.info.querySelector('.go-earth span')?.replaceWith(icon('globe', 18));
     this.info.querySelector('.close')!.addEventListener('click', () => {
       this.info.classList.add('hidden');
       this.selected = undefined;

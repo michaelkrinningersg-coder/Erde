@@ -9,17 +9,25 @@ import {
   type Viewer,
 } from 'cesium';
 import { COLOR_REGIONS, type TimeLayerSpec } from '../config';
-import { archiveName, isoTime, wmsTileUrls, type ImageSource } from './cloudUrls';
+import { archiveName, isoTime, type ImageSource } from './cloudUrls';
 import type { ImageRequest, ImageResponse } from './cloudWorker';
 
-const MAX_DECODED = 5; // so viele fertige Bilder bleiben je Ebene im Speicher
+// Fertige Bilder brauchen viel Speicher; nur wenige bleiben bereit. Die übrigen liegen im
+// Browser-Cache und sind dank vorberechneter Karten im Worker in Sekundenbruchteilen neu aufgebaut.
+const MAX_DECODED = 6;
 const MAX_PARALLEL_BUILDS = 2;
-const WARM_FRAMES = 8; // so viele Zeitschritte in Abspielrichtung werden vorab in den Browser-Cache geladen
+
+interface Decoded {
+  parts: ImageBitmap[];
+  inner: ImageBitmap[];
+}
 
 interface FrameEntry {
-  state: 'loading' | 'ready' | 'failed';
-  parts?: ImageBitmap[];
-  inner: { bitmap: ImageBitmap; rect: Rectangle }[];
+  /** stored = schon einmal erfolgreich geladen (liegt im Browser-Cache) */
+  state: 'loading' | 'stored' | 'failed';
+  innerRects: Rectangle[];
+  decoded?: Decoded;
+  loading?: boolean;
   lastUsed: number;
   failedAt?: number;
 }
@@ -28,6 +36,8 @@ export interface LayerStatus {
   shownFrame?: number; // ms
   latest?: number; // ms
   loading: number;
+  /** Anteil des 10-Minuten-Fensters, der schon geladen ist (0…1), falls vorhanden */
+  dense?: number;
   error?: string;
 }
 
@@ -76,28 +86,33 @@ function isLowEnd(viewer: Viewer): boolean {
 const stackKey = new WeakMap<ImageryLayer, number>();
 
 /**
- * Eine zeitabhängige Bildebene (Wolken weltweit oder Echtfarben Europa):
- * wählt passend zur Simulationszeit zwei Bilder, lädt sie (Archiv oder EUMETSAT direkt),
- * blendet weich über und lädt in Abspielrichtung vor.
+ * Eine zeitabhängige Bildebene (Wolken weltweit oder Echtfarben):
+ *  - grobes Raster (z. B. stündlich) aus dem eigenen Archiv,
+ *  - optional ein dichtes 10-Minuten-Fenster für die letzten Stunden, das die App beim Start
+ *    selbst direkt beim Anbieter nachlädt (neueste zuerst),
+ * wählt passend zur Simulationszeit die zwei nächsten vorhandenen Bilder und blendet weich über.
  */
 export class TimeImageLayer {
   private readonly worker = new Worker(new URL('./cloudWorker.ts', import.meta.url), { type: 'module' });
   private readonly source: ImageSource;
+  private readonly directSource: ImageSource;
   private readonly step: number;
+  private readonly denseStep: number;
+  private readonly denseSpan: number;
   private readonly rect: Rectangle;
   private readonly credit: Credit;
   private readonly entries = new Map<number, FrameEntry>();
-  /** Je angezeigtem Zeitpunkt: Hauptebene und ggf. Innenebene (Wolken im Echtfarben-Gebiet) */
+  /** Je angezeigtem Zeitpunkt: Hauptebene und ggf. Innenebenen (Wolken in Echtfarben-Gebieten) */
   private readonly layers = new Map<number, { main: ImageryLayer; inner: ImageryLayer[] }>();
   private readonly callbacks = new Map<number, (r: ImageResponse) => void>();
-  private readonly warmed = new Set<number>();
   /** Bilder im eigenen Archiv (GitHub Pages), Zeit in ms */
   private readonly archive = new Set<number>();
-  private warming = 0;
   private nextId = 1;
+  private readonly archiveReady: Promise<void>;
   private building = 0;
   private wanted: number[] = [];
-  private latest: number;
+  /** Neuester Zeitpunkt beim Anbieter (genau) und im groben Raster */
+  private latestRaw: number;
   private earliest = 0;
   private lastError?: string;
   private shownFrame?: number;
@@ -106,11 +121,6 @@ export class TimeImageLayer {
   alphaScale = 1;
   /** Nur Wolken: Sichtbarkeit der Innenebenen am Tag, je Echtfarben-Gebiet (= 1 − dessen Deckkraft) */
   innerDayAlpha: number[] = [];
-
-  /** Wie stark diese Ebene gerade tatsächlich zu sehen ist (0…1) */
-  effectiveAlpha() {
-    return this.visible && this.shownFrame !== undefined && this.layers.size > 0 ? this.alphaScale : 0;
-  }
 
   onStatus?: (s: LayerStatus) => void;
 
@@ -129,24 +139,47 @@ export class TimeImageLayer {
       tilesX: spec.tilesX,
       tilesY: spec.tilesY,
     };
+    // Direkt beim Anbieter: kleinere Bilder (schneller), wenn ein 10-Minuten-Fenster festgelegt ist
+    const d = spec.dense;
+    this.directSource = d
+      ? { ...this.source, width: d.width * scale, height: d.height * scale, tilesX: d.tilesX, tilesY: d.tilesY }
+      : this.source;
     this.step = spec.stepMinutes * 60_000;
+    this.denseStep = (d?.minutes ?? spec.stepMinutes) * 60_000;
+    this.denseSpan = (d?.hours ?? 0) * 3_600_000;
     this.rect = Rectangle.fromDegrees(spec.rect.west, spec.rect.south, spec.rect.east, spec.rect.north);
     this.credit = new Credit(spec.credit);
-    this.latest = this.floor(Date.now() - spec.typicalLatencyMinutes * 60_000);
+    this.latestRaw = Date.now() - spec.typicalLatencyMinutes * 60_000;
     this.worker.onmessage = (ev: MessageEvent<ImageResponse>) => {
       this.callbacks.get(ev.data.id)?.(ev.data);
       this.callbacks.delete(ev.data.id);
     };
-    const refresh = () => {
+    // Erst die Archivliste abwarten (höchstens 4 s), damit nichts unnötig den langsamen Direktweg nimmt
+    this.archiveReady = Promise.race([this.loadArchiveIndex(), new Promise<void>((r) => setTimeout(r, 4000))]);
+    void this.refreshLatest();
+    setInterval(() => {
       void this.refreshLatest();
       void this.loadArchiveIndex();
-    };
-    refresh();
-    setInterval(refresh, 20 * 60_000);
+    }, 10 * 60_000);
   }
 
-  private floor(ms: number) {
-    return Math.floor(ms / this.step) * this.step;
+  private get latest() {
+    return Math.floor(this.latestRaw / this.denseStep) * this.denseStep;
+  }
+
+  private get denseStart() {
+    return this.latest - this.denseSpan;
+  }
+
+  /** Alle Zeitpunkte, die es geben kann: grobes Raster, dazu das dichte Fenster am Ende */
+  private gridPrev(t: number) {
+    const coarse = Math.floor(t / this.step) * this.step;
+    if (t < this.denseStart) return coarse;
+    return Math.max(coarse, Math.floor(t / this.denseStep) * this.denseStep);
+  }
+  private gridNext(f: number) {
+    const s = f >= this.denseStart ? this.denseStep : this.step;
+    return Math.floor(f / s) * s + s;
   }
 
   get show() {
@@ -154,11 +187,12 @@ export class TimeImageLayer {
   }
   set show(v: boolean) {
     this.visible = v;
-    for (const l of this.allLayers()) l.show = v && this.alphaScale > 0;
+    this.refreshLayerState();
   }
 
-  private *allLayers() {
-    for (const { main, inner } of this.layers.values()) yield main, yield* inner;
+  /** Wie stark diese Ebene gerade tatsächlich zu sehen ist (0…1) */
+  effectiveAlpha() {
+    return this.visible && this.shownFrame !== undefined && this.layers.size > 0 ? this.alphaScale : 0;
   }
 
   /** Sichtbarkeit und Tages-Deckkraft der Innenebenen an den aktuellen Stand anpassen */
@@ -175,7 +209,7 @@ export class TimeImageLayer {
 
   /** Frühestes Bild, das geladen werden darf (Rückspulgrenze) */
   setEarliest(ms: number) {
-    this.earliest = this.floor(ms);
+    this.earliest = Math.floor(ms / this.step) * this.step;
   }
 
   /** Liste der vorab gespeicherten Bilder (wird stündlich von GitHub Actions erneuert) */
@@ -188,9 +222,9 @@ export class TimeImageLayer {
       const r = this.spec.rect;
       if (idx.rect && idx.rect.join() !== [r.west, r.south, r.east, r.north].join()) return;
       for (const f of idx.frames) this.archive.add(Date.parse(f));
-      if (this.archive.size) this.latest = Math.max(this.latest, ...this.archive);
+      if (this.archive.size) this.latestRaw = Math.max(this.latestRaw, ...this.archive);
     } catch {
-      /* kein Archiv (z. B. lokale Entwicklung) → direkt von EUMETSAT */
+      /* kein Archiv (z. B. lokale Entwicklung) → direkt beim Anbieter */
     }
   }
 
@@ -200,7 +234,7 @@ export class TimeImageLayer {
     return new URL(`${this.spec.archive}/${archiveName(f)}`, document.baseURI).href;
   }
 
-  /** Fragt beim Dienst nach, welches das neueste verfügbare Bild ist. */
+  /** Fragt beim Anbieter nach, welches das neueste verfügbare Bild ist. */
   private async refreshLatest() {
     if (this.spec.source === 'noaa-fd') return this.refreshLatestNoaa();
     try {
@@ -210,24 +244,25 @@ export class TimeImageLayer {
       const dim = /<Dimension name="time"[^>]*>([^<]+)<\/Dimension>/.exec(xml.slice(at));
       const lastInterval = dim?.[1].trim().split(',').pop() ?? '';
       const end = Date.parse(lastInterval.split('/')[1] ?? lastInterval);
-      if (at >= 0 && Number.isFinite(end)) this.latest = Math.max(this.latest, this.floor(end));
+      if (at >= 0 && Number.isFinite(end)) this.latestRaw = Math.max(this.latestRaw, end);
     } catch {
       /* Schätzwert bleibt */
     }
   }
 
-  /** NOAA: neueste volle Stunde aus der Dateiliste des CDN */
+  /** NOAA: neuestes Bild aus der Dateiliste des CDN */
   private async refreshLatestNoaa() {
     try {
       const html = await (await fetch(`${this.spec.wms}/`)).text();
-      const re = /"(\d{4})(\d{3})(\d{2})00_[^"]*\.jpg"/g;
+      const re = /"(\d{4})(\d{3})(\d{2})(\d{2})_[^"]*\.jpg"/g;
       let m: RegExpExecArray | null;
       let best = 0;
       while ((m = re.exec(html))) {
-        const ms = Date.UTC(Number(m[1]), 0, 1) + (Number(m[2]) - 1) * 86_400_000 + Number(m[3]) * 3_600_000;
+        const ms =
+          Date.UTC(Number(m[1]), 0, 1) + (Number(m[2]) - 1) * 86_400_000 + Number(m[3]) * 3_600_000 + Number(m[4]) * 60_000;
         if (ms > best) best = ms;
       }
-      if (best) this.latest = Math.max(this.latest, this.floor(best));
+      if (best) this.latestRaw = Math.max(this.latestRaw, best);
     } catch {
       /* Schätzwert bleibt */
     }
@@ -235,42 +270,84 @@ export class TimeImageLayer {
 
   /** Jedes Bild der Simulation: passende Bilder wählen, laden und überblenden. */
   update(time: JulianDate, multiplier: number) {
-    const STEP = this.step;
     const t = JulianDate.toDate(time).getTime();
     const tc = Math.min(Math.max(t, this.earliest), this.latest);
-    const f0 = this.floor(tc);
-    const f1 = Math.min(f0 + STEP, this.latest);
-    const frac = f1 > f0 ? (tc - f0) / STEP : 0;
     const dir = multiplier < 0 ? -1 : 1;
 
-    // Benötigt: aktuelle zwei Bilder, dann das nächste in Abspielrichtung
-    const ahead = dir > 0 ? f1 + STEP : f0 - STEP;
     if (this.visible) {
-      this.wanted = [f0, f1, ahead].filter((f) => f >= this.earliest && f <= this.latest);
+      // Benötigt: die Rasterpunkte um die aktuelle Zeit (dicht und grob), dann in Abspielrichtung
+      const p = this.gridPrev(tc);
+      const n = Math.min(this.gridNext(p), this.latest);
+      const coarseP = Math.floor(tc / this.step) * this.step;
+      // Rückfall: das letzte Archivbild davor (sofort verfügbar, falls das genaue Bild noch fehlt)
+      let fallback: number | undefined;
+      for (const f of this.archive) if (f <= tc && f > tc - 2 * this.step && (fallback === undefined || f > fallback)) fallback = f;
+      const wanted = [
+        ...(fallback !== undefined ? [fallback] : []),
+        p,
+        n,
+        dir > 0 ? this.gridNext(n) : this.gridPrev(p - 1),
+        coarseP,
+        coarseP + this.step,
+      ];
+      this.wanted = [...new Set(wanted)].filter((f) => f >= this.earliest && f <= this.latest);
       this.pump();
-      this.warmCache(dir > 0 ? f1 : f0, dir);
     }
 
-    const ready = (f: number) => this.entries.get(f)?.state === 'ready';
-    let desired: [number, number][];
+    // Die nächsten vorhandenen Bilder vor und nach der aktuellen Zeit (höchstens ein grobes Raster auseinander)
+    let f0: number | undefined;
+    let f1: number | undefined;
+    for (const [f, e] of this.entries) {
+      if (e.state !== 'stored') continue;
+      if (f <= tc && f > tc - 2 * this.step && (f0 === undefined || f > f0)) f0 = f;
+      if (f >= tc && f < tc + this.step && (f1 === undefined || f < f1)) f1 = f;
+    }
+    if (f0 !== undefined && f1 !== undefined && f1 - f0 > this.step) {
+      // Lücke zu groß zum Überblenden: das zeitlich nähere Bild nehmen
+      if (tc - f0 > f1 - tc) f0 = undefined;
+      else f1 = undefined;
+    }
+    for (const f of [f0, f1]) if (f !== undefined) this.ensureDecoded(f);
+
+    const ready = (f: number | undefined): f is number => f !== undefined && !!this.entries.get(f)?.decoded;
+    let desired: [number, number][] = [];
     if (ready(f0) && ready(f1) && f1 !== f0) {
       // Überblendung: in der Mitte sind beide Bilder voll sichtbar → kein „Ausdünnen“
+      const frac = (tc - f0) / (f1 - f0);
       desired = [
         [f0, Math.min(1, 2 * (1 - frac))],
         [f1, Math.min(1, 2 * frac)],
       ];
     } else if (ready(f0)) desired = [[f0, 1]];
     else if (ready(f1)) desired = [[f1, 1]];
-    else desired = []; // noch nichts da → bisherige Anzeige stehen lassen
 
     if (desired.length) this.applyLayers(desired);
-    else this.refreshLayerState();
+    else this.refreshLayerState(); // noch nichts da → bisherige Anzeige stehen lassen
+
     this.onStatus?.({
       shownFrame: this.shownFrame,
       latest: this.latest,
-      loading: this.building + this.warming,
+      loading: this.building,
+      dense: this.denseSpan ? this.denseProgress() : undefined,
       error: this.lastError,
     });
+  }
+
+  private denseProgress() {
+    let have = 0;
+    let all = 0;
+    for (let f = this.latest; f > this.denseStart; f -= this.denseStep) {
+      all++;
+      if (this.entries.get(f)?.state === 'stored') have++;
+    }
+    return all ? have / all : 1;
+  }
+
+  /** Bild bereitstellen: ist es nicht mehr im Speicher, aus dem Browser-Cache neu aufbauen */
+  private ensureDecoded(f: number) {
+    const e = this.entries.get(f);
+    if (!e || e.decoded || e.state !== 'stored' || this.building >= MAX_PARALLEL_BUILDS) return;
+    void this.build(f);
   }
 
   private applyLayers(desired: [number, number][]) {
@@ -284,14 +361,15 @@ export class TimeImageLayer {
     }
     for (const [f, alpha] of desired) {
       let l = this.layers.get(f);
+      const entry = this.entries.get(f)!;
       if (!l) {
-        const entry = this.entries.get(f)!;
-        const provider = new BitmapImageryProvider(entry.parts!, this.rect, this.credit);
+        const dec = entry.decoded!;
+        const provider = new BitmapImageryProvider(dec.parts, this.rect, this.credit);
         const main = new ImageryLayer(provider as unknown as ImageryProvider, { alpha, nightAlpha: this.spec.nightAlpha });
         this.insertOrdered(main, this.spec.zIndex * 1e13 + f);
         l = { main, inner: [] };
-        for (const [k, part] of entry.inner.entries()) {
-          const p = new BitmapImageryProvider([part.bitmap], part.rect, this.credit);
+        for (const [k, bmp] of dec.inner.entries()) {
+          const p = new BitmapImageryProvider([bmp], entry.innerRects[k], this.credit);
           const inner = new ImageryLayer(p as unknown as ImageryProvider, { alpha, dayAlpha: this.innerDayAlpha[k] ?? 1, nightAlpha: 1 });
           this.insertOrdered(inner, this.spec.zIndex * 1e13 + f + 1);
           l.inner.push(inner);
@@ -300,7 +378,7 @@ export class TimeImageLayer {
       }
       l.main.alpha = alpha * this.alphaScale;
       for (const inner of l.inner) inner.alpha = alpha * this.alphaScale;
-      this.entries.get(f)!.lastUsed = performance.now();
+      entry.lastUsed = performance.now();
     }
     this.refreshLayerState();
     this.shownFrame = desired.reduce((a, b) => (b[1] >= a[1] ? b : a))[0];
@@ -315,49 +393,62 @@ export class TimeImageLayer {
     coll.add(layer, index);
   }
 
-  /** Startet Ladeaufträge für benötigte Bilder (begrenzt parallel). */
+  /**
+   * Startet Ladeaufträge (begrenzt parallel): zuerst, was gerade gebraucht wird,
+   * danach im Hintergrund das 10-Minuten-Fenster (neueste zuerst).
+   */
   private pump() {
-    for (const f of this.wanted) {
-      if (this.building >= MAX_PARALLEL_BUILDS) return;
+    const tryBuild = (f: number) => {
+      if (this.building >= MAX_PARALLEL_BUILDS) return false;
       const e = this.entries.get(f);
-      if (e && (e.state === 'ready' || e.state === 'loading')) continue;
-      if (e?.state === 'failed' && performance.now() - (e.failedAt ?? 0) < 60_000) continue;
+      if (e && (e.state === 'stored' || e.loading)) return true;
+      if (e?.state === 'failed' && performance.now() - (e.failedAt ?? 0) < 120_000) return true;
       void this.build(f);
+      return true;
+    };
+    for (const f of this.wanted) if (!tryBuild(f)) return;
+    if (!this.visible || !this.denseSpan) return;
+    for (let f = this.latest; f > this.denseStart && f >= this.earliest; f -= this.denseStep) {
+      if (!tryBuild(f)) return;
     }
   }
 
   private async build(f: number) {
-    const entry: FrameEntry = { state: 'loading', lastUsed: performance.now(), inner: [] };
+    const entry: FrameEntry = this.entries.get(f) ?? { state: 'loading', lastUsed: performance.now(), innerRects: [] };
+    if (entry.loading) return;
+    entry.loading = true;
     this.entries.set(f, entry);
     this.building++;
+    await this.archiveReady;
     const id = this.nextId++;
+    const archiveUrl = this.archiveUrl(f);
+    const src = archiveUrl ? this.source : this.directSource;
     const res = await new Promise<ImageResponse>((resolve) => {
       this.callbacks.set(id, resolve);
       this.worker.postMessage({
-        ...this.source,
+        ...src,
         id,
         time: isoTime(f),
         mode: this.spec.mode,
         splitX: this.spec.splitX,
-        archiveUrl: this.archiveUrl(f),
+        archiveUrl,
         regions: this.spec.cutouts ?? COLOR_REGIONS,
         region: this.spec.region,
         splitRegions: !!this.spec.cutouts,
-        noaa: this.spec.source === 'noaa-fd' && this.spec.region !== undefined
-          ? { base: this.spec.wms, product: this.spec.layer.replace('5424x5424', '1808x1808'), satLon: COLOR_REGIONS[this.spec.region].satLon }
-          : undefined,
+        noaa:
+          this.spec.source === 'noaa-fd' && this.spec.region !== undefined
+            ? { base: this.spec.wms, product: this.spec.layer.replace('5424x5424', '1808x1808'), satLon: COLOR_REGIONS[this.spec.region].satLon }
+            : undefined,
       } satisfies ImageRequest);
     });
     this.building--;
+    entry.loading = false;
     if (res.ok) {
-      entry.state = 'ready';
-      entry.parts = res.parts;
-      entry.inner = res.inner.map(({ bitmap, rect: r }) => ({
-        bitmap,
-        rect: Rectangle.fromDegrees(r.west, r.south, r.east, r.north),
-      }));
+      entry.state = 'stored';
+      entry.decoded = { parts: res.parts, inner: res.inner.map((i) => i.bitmap) };
+      entry.innerRects = res.inner.map(({ rect: r }) => Rectangle.fromDegrees(r.west, r.south, r.east, r.north));
       this.lastError = undefined;
-      this.evict();
+      this.trimDecoded();
     } else {
       entry.state = 'failed';
       entry.failedAt = performance.now();
@@ -367,33 +458,17 @@ export class TimeImageLayer {
     this.pump();
   }
 
-  /** Alte, nicht angezeigte Bilder freigeben. */
-  private evict() {
-    const ready = [...this.entries].filter(([f, e]) => e.state === 'ready' && !this.layers.has(f));
-    const excess = ready.length + this.layers.size - MAX_DECODED;
+  /** Entpackte Bilder freigeben, die nicht angezeigt werden */
+  private trimDecoded() {
+    const list = [...this.entries].filter(([f, e]) => e.decoded && !this.layers.has(f));
+    const excess = list.length + this.layers.size - MAX_DECODED;
     if (excess <= 0) return;
-    ready.sort((a, b) => a[1].lastUsed - b[1].lastUsed);
-    for (const [f, e] of ready.slice(0, excess)) {
-      e.parts?.forEach((b) => b.close());
-      e.inner.forEach((i) => i.bitmap.close());
-      this.entries.delete(f);
+    list.sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+    for (const [, e] of list.slice(0, excess)) {
+      e.decoded!.parts.forEach((b) => b.close());
+      e.decoded!.inner.forEach((b) => b.close());
+      e.decoded = undefined;
     }
   }
 
-  /** Lädt kommende Zeitschritte schon einmal in den Browser-Cache (ohne sie zu dekodieren). */
-  private warmCache(from: number, dir: number) {
-    if (this.warming > 0) return;
-    for (let k = 1; k <= WARM_FRAMES; k++) {
-      const f = from + dir * k * this.step;
-      if (f < this.earliest || f > this.latest || this.warmed.has(f)) continue;
-      this.warmed.add(f);
-      const archived = this.archiveUrl(f);
-      const urls = archived ? [archived] : wmsTileUrls(this.source, isoTime(f)).map((u) => u.url);
-      this.warming++;
-      void Promise.allSettled(
-        urls.map((u) => fetch(u, { priority: 'low' } as RequestInit).then((r) => r.blob())),
-      ).finally(() => this.warming--);
-      return; // eins nach dem anderen, um den Dienst zu schonen
-    }
-  }
 }

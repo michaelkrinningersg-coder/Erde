@@ -33,11 +33,20 @@ export class TimeControl {
     setInterval(() => this.updateBounds(), 5 * 60_000);
   }
 
+  /** Zeitleiste reicht mindestens bis hierhin (z. B. bis zum Andocken einer Rakete) */
+  private extraEnd?: JulianDate;
+
+  extendTo(end: JulianDate) {
+    if (!this.extraEnd || JulianDate.greaterThan(end, this.extraEnd)) this.extraEnd = end.clone();
+    this.updateBounds();
+  }
+
   private updateBounds() {
     const now = JulianDate.now();
     const { clock } = this.viewer;
     clock.startTime = JulianDate.addDays(now, -this.rangeDays, new JulianDate());
-    clock.stopTime = JulianDate.addHours(now, TIME.futureHours, new JulianDate());
+    const stop = JulianDate.addHours(now, TIME.futureHours, new JulianDate());
+    clock.stopTime = this.extraEnd && JulianDate.greaterThan(this.extraEnd, stop) ? this.extraEnd.clone() : stop;
     this.onRangeChange?.(clock.startTime);
   }
 

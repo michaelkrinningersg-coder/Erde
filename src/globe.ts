@@ -1,4 +1,5 @@
 import {
+  Cartesian3,
   Color,
   Credit,
   GeographicTilingScheme,
@@ -9,7 +10,6 @@ import {
   Viewer,
   WebMercatorTilingScheme,
   type JulianDate,
-  type Cartesian3,
 } from 'cesium';
 import { BASE_MAP, MAX_ZOOM_OUT_M, NIGHT_LIGHTS } from './config';
 
@@ -58,6 +58,12 @@ export function createViewer(container: HTMLElement): { viewer: Viewer; layers: 
   scene.screenSpaceCameraController.maximumZoomDistance = MAX_ZOOM_OUT_M;
   scene.screenSpaceCameraController.minimumZoomDistance = 50;
 
+  // Immer eingenordet: Ziehen dreht die Erde, Mausrad zoomt – kein Kippen, kein Verdrehen
+  const ctl = scene.screenSpaceCameraController;
+  ctl.enableTilt = false;
+  ctl.enableLook = false;
+  viewer.camera.constrainedAxis = Cartesian3.UNIT_Z;
+
   // Tagseite: Sentinel-2 cloudless
   const day = new ImageryLayer(
     new UrlTemplateImageryProvider({
@@ -84,7 +90,8 @@ export function createViewer(container: HTMLElement): { viewer: Viewer; layers: 
 
   // Startansicht: Europa
   viewer.camera.setView({
-    destination: { x: 1.62e7, y: 0.45e7, z: 1.55e7 } as Cartesian3,
+    destination: Cartesian3.fromDegrees(10, 35, 2.2e7),
+    orientation: { heading: 0, pitch: -Math.PI / 2, roll: 0 },
   });
 
   return { viewer, layers: { day, night } };

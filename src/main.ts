@@ -7,6 +7,7 @@ import { CLOUDS, COLOR_AMERICA, COLOR_EUROPE, DATA_BASE, MAX_ZOOM_OUT_M, TIME } 
 import { createViewer } from './globe';
 import { HomeControl } from './home';
 import { Flights } from './objects/flights';
+import { Rockets } from './objects/rocketControl';
 import { Satellites } from './objects/satellites';
 import { Sky } from './objects/sky';
 import { SolarSystemView } from './solar/solarSystem';
@@ -61,6 +62,7 @@ async function main() {
     }
   }
   const flights = new Flights(viewer);
+  const rockets = new Rockets(viewer, time);
   const camera = new CameraControl(viewer);
   const home = new HomeControl(viewer, camera);
 
@@ -83,10 +85,10 @@ async function main() {
     { passive: true },
   );
 
-  buildUi({ viewer, layers, clouds, color, colorAmerica, solar, home, sky, satellites, flights, camera, time });
+  buildUi({ viewer, layers, clouds, color, colorAmerica, solar, home, sky, satellites, flights, rockets, camera, time });
 
   // Für Experimente in der Browser-Konsole
-  Object.assign(window, { erde: { viewer, clouds, color, colorAmerica, sky, satellites, flights, camera, time } });
+  Object.assign(window, { erde: { viewer, clouds, color, colorAmerica, sky, satellites, flights, rockets, camera, time } });
 }
 
 void main();

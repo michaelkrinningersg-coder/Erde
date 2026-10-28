@@ -1,8 +1,7 @@
 import {
-  BoundingSphere,
+  Cartesian2,
   Cartesian3,
   Cartographic,
-  HeadingPitchRange,
   Math as CMath,
   Matrix4,
   ScreenSpaceEventType,
@@ -34,19 +33,18 @@ export const FOCUS_TARGETS: FocusTarget[] = [
 ];
 
 /**
- * Kamera-Steuerung:
- *  - Fokuspunkt: Die Erde dreht sich beim Ziehen um einen gewählten Punkt.
+ * Kamera-Steuerung. Die Erde bleibt immer eingenordet (Norden oben):
+ * Ziehen dreht sie, das Mausrad zoomt – kein Kippen, kein Verdrehen.
+ *  - Fokus: fliegt senkrecht über einen Ort.
  *  - Blick aus dem All: Kamera steht still im Weltraum, die Erde dreht sich darunter.
  */
 export class CameraControl {
-  focusName?: string;
   onChange?: () => void;
   private spaceView = false;
-  private focusCenter?: Cartesian3;
 
   constructor(private readonly viewer: Viewer) {
     const { scene } = viewer;
-    // Doppelklick: auf ein Objekt → verfolgen; auf die Erde → Fokuspunkt setzen
+    // Doppelklick: auf ein Objekt → mitfliegen; auf die Erde → dorthin fliegen
     viewer.screenSpaceEventHandler.setInputAction((ev: { position: { x: number; y: number } }) => {
       const picked = scene.pick(ev.position as never);
       const entity = picked?.id as Entity | undefined;
@@ -58,45 +56,46 @@ export class CameraControl {
       const cart = viewer.camera.pickEllipsoid(ev.position as never);
       if (!cart) return;
       const c = Cartographic.fromCartesian(cart);
-      const range = Math.min(Cartesian3.distance(viewer.camera.positionWC, cart) * 0.6, 8e6);
-      this.focus({
-        name: `${CMath.toDegrees(c.latitude).toFixed(1)}°, ${CMath.toDegrees(c.longitude).toFixed(1)}°`,
-        lat: CMath.toDegrees(c.latitude),
-        lon: CMath.toDegrees(c.longitude),
-        range,
-      });
+      const range = Math.max(2e4, viewer.camera.positionCartographic.height * 0.5);
+      this.focus({ name: '', lat: CMath.toDegrees(c.latitude), lon: CMath.toDegrees(c.longitude), range });
     }, ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
 
     scene.postUpdate.addEventListener((_s, time) => {
-      if (!this.spaceView || this.focusCenter || viewer.trackedEntity) return;
+      if (!this.spaceView || viewer.trackedEntity) return;
       // Kamera im himmelsfesten System halten → Erde dreht sich sichtbar
       const offset = Cartesian3.clone(viewer.camera.position);
       viewer.camera.lookAtTransform(Matrix4.fromRotationTranslation(icrfToFixed(time)), offset);
     });
   }
 
+  /** Senkrecht über einen Ort fliegen, Norden oben */
   focus(t: FocusTarget) {
-    const { camera } = this.viewer;
+    this.release();
     this.viewer.trackedEntity = undefined;
-    camera.lookAtTransform(Matrix4.IDENTITY);
-    const center = Cartesian3.fromDegrees(t.lon, t.lat);
-    const offset = new HeadingPitchRange(0, CMath.toRadians(-55), t.range ?? 3e6);
-    this.focusCenter = center;
-    this.focusName = t.name;
-    this.onChange?.();
-    camera.flyToBoundingSphere(new BoundingSphere(center, 1), {
-      offset,
-      duration: 2.2,
-      complete: () => {
-        // Ab jetzt dreht sich die Ansicht beim Ziehen um diesen Punkt
-        if (this.focusCenter === center) camera.lookAt(center, offset);
-      },
+    this.viewer.camera.flyTo({
+      destination: Cartesian3.fromDegrees(t.lon, t.lat, t.range ?? 3e6),
+      orientation: { heading: 0, pitch: -CMath.PI_OVER_TWO, roll: 0 },
+      duration: 2,
+    });
+  }
+
+  /** Einnorden: Norden nach oben, senkrechter Blick auf die Bildmitte, Abstand bleibt */
+  north() {
+    const { camera, canvas } = this.viewer;
+    this.viewer.trackedEntity = undefined;
+    this.release();
+    const center = camera.pickEllipsoid(new Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2));
+    const height = camera.positionCartographic.height;
+    const c = center ? Cartographic.fromCartesian(center) : camera.positionCartographic;
+    const dist = center ? Cartesian3.distance(camera.positionWC, center) : height;
+    camera.flyTo({
+      destination: Cartesian3.fromRadians(c.longitude, c.latitude, dist),
+      orientation: { heading: 0, pitch: -CMath.PI_OVER_TWO, roll: 0 },
+      duration: 1,
     });
   }
 
   release() {
-    this.focusCenter = undefined;
-    this.focusName = undefined;
     this.viewer.camera.lookAtTransform(Matrix4.IDENTITY);
     this.onChange?.();
   }
@@ -104,7 +103,6 @@ export class CameraControl {
   setSpaceView(on: boolean) {
     this.spaceView = on;
     if (!on) this.viewer.camera.lookAtTransform(Matrix4.IDENTITY);
-    else this.release();
   }
 
   get isSpaceView() {
@@ -120,6 +118,10 @@ export class CameraControl {
   home() {
     this.release();
     this.viewer.trackedEntity = undefined;
-    this.viewer.camera.flyTo({ destination: Cartesian3.fromDegrees(10, 35, 2.2e7), duration: 2 });
+    this.viewer.camera.flyTo({
+      destination: Cartesian3.fromDegrees(10, 35, 2.2e7),
+      orientation: { heading: 0, pitch: -CMath.PI_OVER_TWO, roll: 0 },
+      duration: 2,
+    });
   }
 }

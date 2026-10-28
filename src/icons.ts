@@ -171,3 +171,95 @@ export function homeIcon(size = 40) {
     `home-${size}`,
   );
 }
+
+/** Rakete von der Seite, Spitze zeigt nach oben (wird entlang der Flugrichtung gedreht) */
+export function rocketIcon(size = 40) {
+  return canvas(
+    size,
+    (g, s) => {
+      g.translate(s / 2, s / 2);
+      g.scale(s / 100, s / 100);
+      // Flamme
+      const fl = g.createLinearGradient(0, 28, 0, 50);
+      fl.addColorStop(0, '#fff3b0');
+      fl.addColorStop(0.4, '#ffb347');
+      fl.addColorStop(1, 'rgba(255,90,40,0)');
+      g.fillStyle = fl;
+      g.beginPath();
+      g.moveTo(-7, 28);
+      g.quadraticCurveTo(0, 60, 7, 28);
+      g.fill();
+      // Körper
+      g.fillStyle = '#f4f6f8';
+      g.strokeStyle = 'rgba(0,0,0,.7)';
+      g.lineWidth = 2.5;
+      g.beginPath();
+      g.moveTo(0, -46);
+      g.bezierCurveTo(9, -34, 10, -18, 10, 0);
+      g.lineTo(10, 28);
+      g.lineTo(-10, 28);
+      g.lineTo(-10, 0);
+      g.bezierCurveTo(-10, -18, -9, -34, 0, -46);
+      g.closePath();
+      g.fill();
+      g.stroke();
+      // Finnen
+      g.fillStyle = '#ff6b3d';
+      for (const sx of [-1, 1]) {
+        g.beginPath();
+        g.moveTo(sx * 10, 8);
+        g.lineTo(sx * 22, 26);
+        g.lineTo(sx * 22, 32);
+        g.lineTo(sx * 10, 26);
+        g.closePath();
+        g.fill();
+        g.stroke();
+      }
+      // Fenster
+      g.fillStyle = '#3a86ff';
+      g.beginPath();
+      g.arc(0, -16, 5, 0, Math.PI * 2);
+      g.fill();
+      g.stroke();
+    },
+    `rocket-${size}`,
+  );
+}
+
+/** Startplatz: Startturm mit Rampe */
+export function launchPadIcon(size = 30) {
+  return canvas(
+    size,
+    (g, s) => {
+      g.translate(s / 2, s);
+      g.scale(s / 30, s / 30);
+      g.strokeStyle = '#ff9f43';
+      g.fillStyle = 'rgba(20,24,32,.85)';
+      g.lineWidth = 1.6;
+      g.fillRect(-12, -5, 24, 5);
+      g.strokeRect(-12, -5, 24, 5);
+      g.beginPath();
+      g.moveTo(-5, -5);
+      g.lineTo(-5, -27);
+      g.lineTo(-1, -27);
+      g.lineTo(-1, -5);
+      for (let y = -9; y > -27; y -= 4) {
+        g.moveTo(-5, y);
+        g.lineTo(-1, y - 4);
+      }
+      g.moveTo(-1, -20);
+      g.lineTo(4, -20);
+      g.stroke();
+      g.fillStyle = '#f4f6f8';
+      g.beginPath();
+      g.moveTo(7, -24);
+      g.lineTo(9, -19);
+      g.lineTo(9, -6);
+      g.lineTo(5, -6);
+      g.lineTo(5, -19);
+      g.closePath();
+      g.fill();
+    },
+    `pad-${size}`,
+  );
+}

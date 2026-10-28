@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
     <title>Erde</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌍</text></svg>" />
+    <link rel="icon" type="image/png" href="./favicon.png" />
     <script>
       // Cesium lädt Worker und Texturen relativ zu diesem Pfad
       window.CESIUM_BASE_URL = './cesium/';
@@ -15,10 +15,10 @@
 
     <aside id="panel" class="glass">
       <header>
-        <h1>🌍 Erde</h1>
+        <h1 data-icon="globe" data-icon-size="24">Erde</h1>
         <span class="head-btns">
-          <button id="home-btn" class="icon-btn" title="Nach Hause">🏠</button>
-          <button id="panel-toggle" class="icon-btn" title="Bedienfeld ein-/ausklappen">☰</button>
+          <button id="home-btn" class="icon-btn" title="Nach Hause (beim ersten Mal Ort festlegen)" data-icon="home"></button>
+          <button id="panel-toggle" class="icon-btn" title="Bedienfeld ein-/ausklappen" data-icon="menu"></button>
         </span>
       </header>
       <div id="panel-body"></div>
@@ -26,24 +26,23 @@
 
     <div id="topright">
       <div id="status" class="glass"></div>
-      <div id="focus-chip" class="glass hidden"></div>
     </div>
 
+    <button id="north-btn" class="glass" title="Einnorden: Norden oben, senkrecht von oben" data-icon="compass" data-icon-size="28"></button>
+
     <div id="timebar" class="glass">
-      <button data-speed="-3600" title="1 Stunde pro Sekunde zurück">⏪</button>
-      <button data-speed="0" title="Anhalten">⏸</button>
-      <button data-speed="1" title="Echtzeit">▶</button>
-      <button data-speed="600" title="10 Minuten pro Sekunde">⏩</button>
-      <button data-speed="3600" title="1 Stunde pro Sekunde">⏩⏩</button>
-      <button id="btn-live" title="Zurück zur aktuellen Zeit">Jetzt</button>
-      <label class="range">Zurück:
-        <select id="range-select">
-          <option value="1">1 Tag</option>
-          <option value="7" selected>7 Tage</option>
-          <option value="14">14 Tage</option>
-          <option value="30">30 Tage</option>
-        </select>
-      </label>
+      <button data-speed="-3600" title="Zurückspulen (1 Stunde pro Sekunde)" data-icon="rewind"></button>
+      <button data-speed="0" title="Anhalten" data-icon="pause"></button>
+      <button data-speed="1" title="Echtzeit" data-icon="play"></button>
+      <button data-speed="600" title="Schnell (10 Minuten pro Sekunde)" data-icon="forward"></button>
+      <button data-speed="3600" title="Sehr schnell (1 Stunde pro Sekunde)" data-icon="fast"></button>
+      <button id="btn-live" title="Zurück zur aktuellen Zeit" data-icon="now">Jetzt</button>
+      <select id="range-select" title="Wie weit man zurückspulen kann">
+        <option value="1">1 Tag</option>
+        <option value="7" selected>7 Tage</option>
+        <option value="14">14 Tage</option>
+        <option value="30">30 Tage</option>
+      </select>
       <span id="clock-label"></span>
     </div>
 
