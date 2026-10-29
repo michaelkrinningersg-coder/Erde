@@ -93,6 +93,10 @@ bauen), Unreal (schwer, Desktop-only).
   Liegt die Zahl mehr als 1,5-fach über dem Ballungsraum laut UN-Prognose 2025 (aus Natural Earth), gilt der
   Ballungsraum (49 Städte); die Verwaltungszahl steht im Steckbrief. Stadtbezirke (Pudong, Brooklyn …)
   zählen nicht als eigene Städte. Kleinere chinesische Städte ohne UN-Zahl können noch zu hoch sein.
+- Umschaltbar auf das Satellitenbild (Sentinel-2 ohne Wolken, ohne Nacht); Landgrenzen (ohne Küsten) als
+  eigene Linien darüber – aus den Kanten, die zwei Ländern gemeinsam sind. Standard: aus.
+- Höchster Punkt je Land: Wikidata (P610, Höhe P2044, Lage P625), 224 Länder; gleiche Berge (Mont Blanc)
+  nur einmal. Wikipedia-Link deutsch, sonst englisch.
 - Höhe über dem Meer: GeoNames (gemessen, sonst Geländemodell SRTM/GTOPO30 am Ortspunkt).
 - Hauptstädte inkl. Regierungs-, Parlaments- und Gerichtssitze (Natural Earth, Rollen von Hand ergänzt).
 - Namen erscheinen ohne Überlappung (Hauptstädte zuerst, dann nach Einwohnern), höchstens 260 gleichzeitig.

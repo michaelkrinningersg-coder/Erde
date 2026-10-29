@@ -49,6 +49,8 @@ const P: Record<string, string> = {
   map: '<path d="M3 6.5l6-2.5 6 2.5 6-2.5v13.5l-6 2.5-6-2.5-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/>',
   ruler:
     '<rect x="1.8" y="8.2" width="20.4" height="7.6" rx="1.4" transform="rotate(-30 12 12)"/><path d="M7.2 13.6l-1-1.7M10 12l-1.5-2.6M12.8 10.4l-1-1.7M15.6 8.8l-1.5-2.6"/>',
+  mountain: '<path d="M2.5 19.5l6.5-11.5 3.6 6 2.4-3.4 6.5 8.9z"/><path d="M6.8 11.9l2.2 1.4 1.7-1.5"/>',
+  borders: '<path d="M3 5.5c3.5 1.5 4 5.5 8 6s4.5 5 10 7" stroke-dasharray="3.2 2.4"/><path d="M3 19.5l5-3M16 4.5l2 4"/>',
   city: '<path d="M3 20.5h18M5 20.5V9l5-3v14.5M10 20.5V4h6v16.5M16 20.5v-9h3.5v9"/>',
 };
 

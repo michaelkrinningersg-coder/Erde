@@ -43,12 +43,15 @@ interface CountryData {
   q: string; // Wikidata
   p: EncodedRing[][]; // genaue Polygone (Außenring + Löcher), Natural Earth 1:10 Mio.
   g: EncodedRing[][]; // grobe Polygone für den Blick auf die ganze Erde
+  h: [string, number, number, number, string] | null; // höchster Punkt: Name, Länge, Breite, Höhe, Wikipedia
 }
 interface CountriesFile {
   scale: number;
   countries: CountryData[];
   lakes: EncodedRing[][];
   lakesCoarse: EncodedRing[][];
+  borders: EncodedRing[]; // Landgrenzen als Linien (ohne Küsten)
+  bordersCoarse: EncodedRing[];
 }
 /**
  * [Name, Land, Einwohner, Breite, Länge, Rang Land, Rang Kontinent, Rang Welt, Hauptstadt-Rolle, Wikipedia-Titel,
@@ -122,7 +125,7 @@ class PoliticalImagery {
   readonly maximumLevel = 17;
   readonly tileDiscardPolicy = undefined;
   readonly errorEvent = new Event();
-  readonly hasAlphaChannel = false;
+  readonly hasAlphaChannel: boolean = false;
   readonly credit = undefined;
   readonly proxy = undefined;
 
@@ -235,27 +238,135 @@ function inside(polys: Poly[], x: number, y: number) {
   return false;
 }
 
-/** Hauptstadt: roter Stern mit weißem Rand */
-function starIcon() {
+interface Line {
+  path: Path2D;
+  bbox: BBox;
+}
+
+function decodeLines(lines: EncodedRing[]): Line[] {
+  return lines.map((enc) => {
+    const path = new Path2D();
+    const bbox: BBox = [Infinity, Infinity, -Infinity, -Infinity];
+    let x = 0;
+    let y = 0;
+    for (let i = 0; i < enc.length; i += 2) {
+      x += enc[i];
+      y += enc[i + 1];
+      if (i === 0) path.moveTo(x, -y);
+      else path.lineTo(x, -y);
+      bbox[0] = Math.min(bbox[0], x);
+      bbox[1] = Math.min(bbox[1], y);
+      bbox[2] = Math.max(bbox[2], x);
+      bbox[3] = Math.max(bbox[3], y);
+    }
+    return { path, bbox };
+  });
+}
+
+/** Nur die Ländergrenzen (durchsichtige Kacheln) – zum Einblenden über dem Satellitenbild */
+class BorderImagery extends PoliticalImagery {
+  override readonly hasAlphaChannel: boolean = true;
+  constructor(
+    private readonly fine: Line[],
+    private readonly coarseLines: Line[],
+    private readonly q: number,
+  ) {
+    super([], [], [], q);
+  }
+
+  override requestImage(x: number, y: number, level: number) {
+    const r = this.tilingScheme.tileXYToRectangle(x, y, level);
+    const [w, s, e, n] = [r.west, r.south, r.east, r.north].map((v) => CesiumMath.toDegrees(v) * this.q);
+    const c = document.createElement('canvas');
+    c.width = this.tileWidth;
+    c.height = this.tileHeight;
+    const g = c.getContext('2d')!;
+    const k = c.width / (e - w);
+    g.setTransform(k, 0, 0, k, -w * k, n * k);
+    const pad = 4 / k;
+    const lines = (level <= COARSE_MAX_LEVEL ? this.coarseLines : this.fine).filter(
+      (l) => l.bbox[0] <= e + pad && l.bbox[2] >= w - pad && l.bbox[1] <= n + pad && l.bbox[3] >= s - pad,
+    );
+    const px = level >= 8 ? 2.4 : level >= 5 ? 1.9 : 1.4;
+    g.lineJoin = g.lineCap = 'round';
+    // dunkler Rand unter heller Linie: auf Wald, Wüste und Schnee gut zu sehen
+    g.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+    g.lineWidth = (px + 2) / k;
+    for (const l of lines) g.stroke(l.path);
+    g.strokeStyle = 'rgba(255, 224, 110, 0.95)';
+    g.lineWidth = px / k;
+    for (const l of lines) g.stroke(l.path);
+    return Promise.resolve(c);
+  }
+}
+
+interface Peak {
+  name: string;
+  lon: number;
+  lat: number;
+  elev: number;
+  wiki: string;
+  countries: string[];
+}
+
+/** Höchster Punkt: kleiner Berg mit Schneekappe */
+function peakIcon() {
   const s = 22;
+  const c = document.createElement('canvas');
+  c.width = c.height = s * 2;
+  const g = c.getContext('2d')!;
+  g.scale(2, 2);
+  g.beginPath();
+  g.moveTo(2, 19);
+  g.lineTo(11, 3);
+  g.lineTo(20, 19);
+  g.closePath();
+  g.fillStyle = '#7a5134';
+  g.strokeStyle = '#fff';
+  g.lineWidth = 1.6;
+  g.fill();
+  g.stroke();
+  g.beginPath();
+  g.moveTo(11, 3);
+  g.lineTo(7.2, 9.8);
+  g.lineTo(9.4, 8.8);
+  g.lineTo(11, 10.2);
+  g.lineTo(12.8, 8.8);
+  g.lineTo(14.8, 9.8);
+  g.closePath();
+  g.fillStyle = '#fff';
+  g.fill();
+  return c;
+}
+
+/** Hauptstadt: klassisches Atlas-Zeichen – weißer Kreis mit dunkelrotem Ring und Punkt */
+function capitalIcon() {
+  const s = 18;
   const c = document.createElement('canvas');
   c.width = c.height = s * 2;
   const g = c.getContext('2d')!;
   g.scale(2, 2);
   g.translate(s / 2, s / 2);
   g.beginPath();
-  for (let i = 0; i < 10; i++) {
-    const r = i % 2 ? 4.2 : 9.5;
-    const a = (i * Math.PI) / 5 - Math.PI / 2;
-    g.lineTo(Math.cos(a) * r, Math.sin(a) * r);
-  }
-  g.closePath();
-  g.fillStyle = '#e0262b';
-  g.strokeStyle = '#fff';
-  g.lineWidth = 2;
+  g.arc(0, 0, 7, 0, Math.PI * 2);
+  g.fillStyle = '#fff';
+  g.fill();
+  g.lineWidth = 2.4;
+  g.strokeStyle = '#a3001b';
   g.stroke();
+  g.beginPath();
+  g.arc(0, 0, 3, 0, Math.PI * 2);
+  g.fillStyle = '#a3001b';
   g.fill();
   return c;
+}
+
+/** Link zum Wikipedia-Artikel („en:“ = nur auf Englisch vorhanden), sonst Suche */
+function wikiLink(title: string, search: string) {
+  if (!title) return `https://de.wikipedia.org/w/index.php?search=${encodeURIComponent(search)}`;
+  const en = title.startsWith('en:');
+  const t = en ? title.slice(3) : title;
+  return `https://${en ? 'en' : 'de'}.wikipedia.org/wiki/${encodeURIComponent(t.replace(/ /g, '_'))}`;
 }
 
 /** Wie nah man heranzoomen muss, bis der Stadtname erscheint (m) */
@@ -288,7 +399,18 @@ export class PoliticalView {
   private readonly labels = new LabelCollection();
   private readonly labelPool: Label[] = [];
   private readonly countryLabels = new LabelCollection();
+  private readonly peakIcons = new BillboardCollection();
+  private readonly peakLabels = new LabelCollection();
+  private borderLayer?: ImageryLayer;
+  /** Satellitenbild statt politischer Farben (Standard: aus) */
+  private satelliteMode = false;
+  private showBorders = false;
+  private showPeaks = false;
+  private readonly baseBtn = document.createElement('button');
+  private readonly bordersBtn = document.createElement('button');
+  private readonly peaksBtn = document.createElement('button');
   private countryLabelList: CountryLabel[] = [];
+  private peakList: { pos: Cartesian3; range: number; width: number }[] = [];
   private labelsDirty = true;
   private lastLabelUpdate = 0;
   private readonly lastCam = new Cartesian3();
@@ -305,8 +427,12 @@ export class PoliticalView {
   private readonly measureBtn = document.createElement('button');
   private readonly measureText = document.createElement('span');
 
-  constructor(private readonly viewer: Viewer) {
-    for (const p of [this.countryLabels, this.points, this.stars, this.labels]) {
+  constructor(
+    private readonly viewer: Viewer,
+    /** Satellitenbild der Erde (Sentinel-2 ohne Wolken) */
+    private readonly satellite: ImageryLayer,
+  ) {
+    for (const p of [this.countryLabels, this.peakIcons, this.peakLabels, this.points, this.stars, this.labels]) {
       p.show = false;
       viewer.scene.primitives.add(p);
     }
@@ -337,9 +463,9 @@ export class PoliticalView {
     }
     document.body.classList.remove('political-loading');
     if (!this.active) return;
-    this.layer!.show = true;
-    this.viewer.imageryLayers.raiseToTop(this.layer!);
+    this.applyBase();
     for (const p of [this.countryLabels, this.points, this.stars, this.labels]) p.show = true;
+    this.applyPeaks();
     this.overlay.show = true;
     this.applyThreshold();
     this.handler = new ScreenSpaceEventHandler(this.viewer.canvas);
@@ -352,7 +478,8 @@ export class PoliticalView {
     this.handler?.destroy();
     this.handler = undefined;
     if (this.layer) this.layer.show = false;
-    for (const p of [this.countryLabels, this.points, this.stars, this.labels]) p.show = false;
+    if (this.borderLayer) this.borderLayer.show = false;
+    for (const p of [this.countryLabels, this.peakIcons, this.peakLabels, this.points, this.stars, this.labels]) p.show = false;
     this.overlay.show = false;
     this.setMeasuring(false);
     this.card.classList.add('hidden');
@@ -369,7 +496,7 @@ export class PoliticalView {
     const layers: [ImageryLayer, boolean][] = [];
     for (let i = 0; i < v.imageryLayers.length; i++) {
       const l = v.imageryLayers.get(i);
-      if (l === this.layer) continue;
+      if (l === this.layer || l === this.borderLayer) continue;
       layers.push([l, l.show]);
       l.show = false;
     }
@@ -427,6 +554,10 @@ export class PoliticalView {
     const provider = new PoliticalImagery(this.countries, decode(cf.lakes), decode(cf.lakesCoarse), cf.scale);
     this.layer = new ImageryLayer(provider as unknown as ImageryProvider, { show: false });
     this.viewer.imageryLayers.add(this.layer);
+    const borders = new BorderImagery(decodeLines(cf.borders), decodeLines(cf.bordersCoarse), cf.scale);
+    this.borderLayer = new ImageryLayer(borders as unknown as ImageryProvider, { show: false });
+    this.viewer.imageryLayers.add(this.borderLayer);
+    this.buildPeaks();
 
     // Ländernamen: große Länder schon von weit weg, kleine erst beim Heranzoomen
     for (const ct of this.countries) {
@@ -451,7 +582,7 @@ export class PoliticalView {
 
     // Städte
     this.cityData = cities;
-    const star = starIcon();
+    const star = capitalIcon();
     for (const row of cities.cities) {
       const [, , pop, lat, lon, , , , cap] = row;
       const pos = Cartesian3.fromDegrees(lon, lat);
@@ -461,8 +592,8 @@ export class PoliticalView {
         city.star = this.stars.add({
           position: pos,
           image: star,
-          width: 20,
-          height: 20,
+          width: 16,
+          height: 16,
           // ganz weit draußen klein, damit sich die Sterne nicht überdecken
           scaleByDistance: new NearFarScalar(1.5e6, 1, 2.2e7, 0.3),
           id: { city: row },
@@ -483,6 +614,62 @@ export class PoliticalView {
     }
     // Wichtigste zuerst beschriften
     this.cities.sort((a, b) => b.prio - a.prio);
+  }
+
+  /** Höchste Punkte: gleicher Berg für mehrere Länder (z. B. Mont Blanc) nur einmal */
+  private buildPeaks() {
+    const peaks = new Map<string, Peak>();
+    for (const { data } of this.countries) {
+      if (!data.h) continue;
+      const [name, lon, lat, elev, wiki] = data.h;
+      const key = `${lon.toFixed(2)},${lat.toFixed(2)}`;
+      const p = peaks.get(key);
+      if (p) p.countries.push(data.n);
+      else peaks.set(key, { name, lon, lat, elev, wiki, countries: [data.n] });
+    }
+    const img = peakIcon();
+    for (const p of peaks.values()) {
+      const position = Cartesian3.fromDegrees(p.lon, p.lat);
+      const id = { peak: p };
+      const range = p.elev > 4000 ? 7e6 : 4e6;
+      this.peakList.push({ pos: position, range, width: Math.max(p.name.length * 7, 50) });
+      this.peakIcons.add({ position, image: img, width: 20, height: 20, verticalOrigin: VerticalOrigin.BOTTOM, scaleByDistance: new NearFarScalar(1.5e6, 1, 2.2e7, 0.4), id });
+      this.peakLabels.add({
+        position,
+        text: `${p.name ? `${p.name}\n` : ''}${fmt(p.elev)} m`,
+        font: '600 12px system-ui, sans-serif',
+        fillColor: Color.fromCssColorString('#3b2414'),
+        outlineColor: Color.WHITE,
+        outlineWidth: 3,
+        style: LabelStyle.FILL_AND_OUTLINE,
+        verticalOrigin: VerticalOrigin.TOP,
+        horizontalOrigin: HorizontalOrigin.CENTER,
+        pixelOffset: new Cartesian2(0, 3),
+        distanceDisplayCondition: new DistanceDisplayCondition(0, range),
+        id,
+      });
+    }
+  }
+
+  /** Grundkarte: politische Farben oder Satellitenbild (ohne Wolken, ohne Nacht), Grenzen darüber */
+  private applyBase() {
+    this.baseBtn.classList.toggle('active', this.satelliteMode);
+    this.bordersBtn.classList.toggle('active', this.showBorders);
+    this.bordersBtn.classList.toggle('hidden', !this.satelliteMode);
+    if (!this.active || !this.layer || !this.borderLayer) return;
+    const layers = this.viewer.imageryLayers;
+    this.layer.show = !this.satelliteMode;
+    this.satellite.show = this.satelliteMode;
+    this.borderLayer.show = this.satelliteMode && this.showBorders;
+    layers.raiseToTop(this.layer);
+    layers.raiseToTop(this.borderLayer);
+  }
+
+  private applyPeaks() {
+    this.peaksBtn.classList.toggle('active', this.showPeaks);
+    const show = this.active && this.showPeaks;
+    this.peakIcons.show = show;
+    this.peakLabels.show = show;
   }
 
   setThreshold(v: number) {
@@ -530,6 +717,14 @@ export class PoliticalView {
       const w = cl.label.text.length * 8.5;
       boxes.push([s.x - w / 2, s.y - 10, s.x + w / 2, s.y + 10]);
     }
+    // Berge (wenn eingeschaltet): Symbol und zweizeiliger Name darunter
+    if (this.showPeaks) {
+      for (const pk of this.peakList) {
+        if (Cartesian3.distance(pk.pos, camPos) > pk.range || !facing(pk.pos)) continue;
+        const s = scene.cartesianToCanvasCoordinates(pk.pos, toScreen);
+        if (s) boxes.push([s.x - pk.width / 2, s.y - 20, s.x + pk.width / 2, s.y + 34]);
+      }
+    }
     const w = scene.canvas.clientWidth;
     const h = scene.canvas.clientHeight;
     let used = 0;
@@ -576,7 +771,14 @@ export class PoliticalView {
   // ── Anklicken ─────────────────────────────────────────────────────────
 
   private click(pos: Cartesian2) {
-    const picked = this.viewer.scene.pick(pos) as { id?: { city?: CityRow; country?: Country } } | undefined;
+    const picked = this.viewer.scene.pick(pos) as { id?: { city?: CityRow; country?: Country; peak?: Peak } } | undefined;
+    const peak = picked?.id?.peak;
+    if (peak) {
+      const pp = { pos: Cartographic.fromDegrees(peak.lon, peak.lat), name: peak.name || 'Höchster Punkt' };
+      if (this.measuring) this.addMeasurePoint(pp);
+      this.showPeak(peak, pp);
+      return;
+    }
     const row = picked?.id?.city;
     const ray = this.viewer.camera.getPickRay(pos);
     const hit = ray && this.viewer.scene.globe.pick(ray, this.viewer.scene);
@@ -612,11 +814,9 @@ export class PoliticalView {
         </table>
         <div class="muted small">Rang nach Einwohnern unter allen Orten ab 1.000 Einwohnern · Daten: GeoNames</div>`
       : '';
-    const link = wiki
-      ? `https://de.wikipedia.org/wiki/${encodeURIComponent(wiki.replace(/ /g, '_'))}`
-      : `https://de.wikipedia.org/w/index.php?search=${encodeURIComponent(`${name} ${country}`)}`;
+    const link = wikiLink(wiki, `${name} ${country}`);
     this.openCard(
-      `<h3>${cap ? '<span class="cap-star">★</span> ' : ''}${name}</h3>
+      `<h3>${cap ? '<span class="cap-mark"></span>' : ''}${name}</h3>
        <div class="sub">${cap ? `<b>${cap}</b> · ` : ''}${country}${contName ? ` · ${contName}` : ''}</div>
        <div class="pop"><span class="big">${fmt(pop)}</span> Einwohner${adminPop ? ' <span class="muted">(Ballungsraum)</span>' : ''}</div>
        <table>
@@ -630,15 +830,29 @@ export class PoliticalView {
     );
   }
 
+  private showPeak(p: Peak, from: MeasurePoint) {
+    const link = wikiLink(p.wiki, `${p.name || 'Höchster Punkt'} ${p.countries[0]}`);
+    this.openCard(
+      `<h3><span class="peak-ico">▲</span> ${p.name || 'Höchster Punkt'}</h3>
+       <div class="sub">Höchster Punkt von ${p.countries.join(' und ')}</div>
+       <div class="pop"><span class="big">${fmt(p.elev)} m</span> über dem Meer</div>
+       <div class="muted small">Daten: Wikidata</div>`,
+      link,
+      from,
+    );
+  }
+
   private showCountry(ct: Country) {
     const c = ct.data;
     const d = this.cityData!;
     const caps = d.cities.filter((r) => r[1] === c.i && r[8]);
     const biggest = d.cities.find((r) => r[1] === c.i);
+    const peak = c.h ? `<tr><th>Höchster Punkt</th><td>${c.h[0] ? `${c.h[0]}, ` : ''}${fmt(c.h[3])} m</td></tr>` : '';
     const rows = [
       c.e ? `<tr><th>Einwohner</th><td>ca. ${fmt(Math.round(c.e / 1000) * 1000)}</td></tr>` : '',
       caps.length ? `<tr><th>${caps.length > 1 ? 'Hauptstädte' : 'Hauptstadt'}</th><td>${caps.map((r) => (caps.length > 1 ? `${r[0]} <span class="muted">(${r[8]})</span>` : r[0])).join('<br>')}</td></tr>` : '',
       biggest && !caps.includes(biggest) ? `<tr><th>Größte Stadt</th><td>${biggest[0]}</td></tr>` : '',
+      peak,
       c.i && d.countries[c.i] ? `<tr><th>Orte ab 1.000 Einw.</th><td>${fmt(d.countries[c.i][2])}</td></tr>` : '',
     ].join('');
     const link = c.q ? `https://www.wikidata.org/wiki/Special:GoToLinkedPage/dewiki/${c.q}` : `https://de.wikipedia.org/w/index.php?search=${encodeURIComponent(c.n)}`;
@@ -655,7 +869,7 @@ export class PoliticalView {
     a.target = '_blank';
     a.rel = 'noopener';
     a.className = 'wiki-link';
-    a.textContent = 'Wikipedia';
+    a.textContent = wiki.includes('//en.wikipedia') ? 'Wikipedia (englisch)' : 'Wikipedia';
     actions.append(a);
     if (from) {
       const b = document.createElement('button');
@@ -773,7 +987,28 @@ export class PoliticalView {
     close.title = 'Zurück zur echten Erde';
     close.append(icon('globe', 20));
     close.addEventListener('click', () => void this.exit());
-    this.bar.append(cityIco, sel, this.measureBtn, close, this.measureText);
+    const toggleBtn = (b: HTMLButtonElement, ico: Parameters<typeof icon>[0], title: string, onClick: () => void) => {
+      b.className = 'icon-btn';
+      b.title = title;
+      b.append(icon(ico, 20));
+      b.addEventListener('click', onClick);
+    };
+    toggleBtn(this.baseBtn, 'photo', 'Satellitenbild statt Länderfarben (ohne Wolken, immer Tag)', () => {
+      this.satelliteMode = !this.satelliteMode;
+      this.applyBase();
+    });
+    toggleBtn(this.bordersBtn, 'borders', 'Ländergrenzen auf dem Satellitenbild ein/aus', () => {
+      this.showBorders = !this.showBorders;
+      this.applyBase();
+    });
+    toggleBtn(this.peaksBtn, 'mountain', 'Höchsten Berg jedes Landes zeigen', () => {
+      this.showPeaks = !this.showPeaks;
+      this.applyPeaks();
+      this.labelsDirty = true;
+    });
+    this.applyBase();
+    this.applyPeaks();
+    this.bar.append(cityIco, sel, this.baseBtn, this.bordersBtn, this.peaksBtn, this.measureBtn, close, this.measureText);
 
     this.card.id = 'city-card';
     this.card.className = 'glass hidden';

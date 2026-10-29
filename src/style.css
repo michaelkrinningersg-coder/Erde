@@ -875,8 +875,14 @@ button.active {
   font-size: 22px;
 }
 
-#city-card .cap-star {
-  color: #ff4b4f;
+#city-card .cap-mark {
+  display: inline-block;
+  width: 15px;
+  height: 15px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #a3001b 0 3px, #fff 3.5px 5px, #a3001b 5.5px);
+  vertical-align: 1px;
 }
 
 #city-card .sub {
@@ -969,4 +975,8 @@ button.active {
   #political-bar .city-slider {
     width: 120px;
   }
+}
+
+#city-card .peak-ico {
+  color: #b07a4f;
 }

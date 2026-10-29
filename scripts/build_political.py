@@ -201,7 +201,120 @@ def color_countries(feats):
     return colors
 
 
-def build_countries(cache):
+def dp_open(pts, tol):
+    """Douglas-Peucker für eine offene Linie."""
+    t = tol * Q
+    n = len(pts)
+    if n < 3:
+        return pts
+    keep = [False] * n
+    keep[0] = keep[-1] = True
+    stack = [(0, n - 1)]
+    while stack:
+        i, j = stack.pop()
+        if j <= i + 1:
+            continue
+        (ax, ay), (bx, by) = pts[i], pts[j]
+        dx, dy = bx - ax, by - ay
+        L = (dx * dx + dy * dy) ** 0.5
+        best, bi = -1.0, -1
+        for k in range(i + 1, j):
+            px, py = pts[k]
+            d = abs(dy * (px - ax) - dx * (py - ay)) / L if L else ((px - ax) ** 2 + (py - ay) ** 2) ** 0.5
+            if d > best:
+                best, bi = d, k
+        if best > t:
+            keep[bi] = True
+            stack += [(i, bi), (bi, j)]
+    return [pts[k] for k in range(n) if keep[k]]
+
+
+def border_lines(feats):
+    """Landgrenzen (ohne Küsten): Kanten, die zu zwei verschiedenen Ländern gehören, zu Linien verkettet."""
+    owner = defaultdict(set)
+    for i, f in enumerate(feats):
+        for poly in f['polys']:
+            for ring in poly:
+                for a, b in zip(ring, ring[1:] + ring[:1]):
+                    owner[(a, b) if a < b else (b, a)].add(i)
+    adj = defaultdict(list)
+    for (a, b), who in owner.items():
+        if len(who) > 1:
+            adj[a].append(b)
+            adj[b].append(a)
+    used = set()
+    lines = []
+
+    def walk(start, nxt):
+        line = [start]
+        prev, cur = start, nxt
+        while True:
+            used.add((prev, cur) if prev < cur else (cur, prev))
+            line.append(cur)
+            if len(adj[cur]) != 2:
+                break
+            n2 = adj[cur][0] if adj[cur][1] == prev else adj[cur][1]
+            if ((cur, n2) if cur < n2 else (n2, cur)) in used:
+                break
+            prev, cur = cur, n2
+        return line
+
+    # zuerst an Enden/Kreuzungen beginnen, danach geschlossene Ringe (z. B. Enklaven)
+    for start in sorted(adj, key=lambda p: len(adj[p]) == 2):
+        for nxt in adj[start]:
+            if ((start, nxt) if start < nxt else (nxt, start)) not in used:
+                lines.append(walk(start, nxt))
+    return lines
+
+
+def encode_lines(lines, tol):
+    res = []
+    for line in lines:
+        r = dp_open(line, tol)
+        flat = [r[0][0], r[0][1]]
+        for (ax, ay), (bx, by) in zip(r, r[1:]):
+            flat += [bx - ax, by - ay]
+        res.append(flat)
+    return res
+
+
+def highest_points(feats, cache, use_wikidata):
+    """Höchster Punkt je Land aus Wikidata (P610) mit Höhe (P2044) und Lage (P625)."""
+    path = os.path.join(cache, 'wikidata_peaks.json')
+    if os.path.exists(path):
+        known = json.load(open(path, encoding='utf-8'))
+    elif use_wikidata:
+        ids = ' '.join(f"wd:{f['wikidata']}" for f in feats if f['wikidata'])
+        q = ('SELECT ?c ?hp ?hpLabel ?coord ?elev ?a WHERE { VALUES ?c {' + ids + '} ?c wdt:P610 ?hp . '
+             '?hp wdt:P625 ?coord . ?hp wdt:P2044 ?elev . '
+             'OPTIONAL { ?a schema:about ?hp; schema:isPartOf <https://de.wikipedia.org/> } '
+             'OPTIONAL { ?b schema:about ?hp; schema:isPartOf <https://en.wikipedia.org/> } '
+             'SERVICE wikibase:label { bd:serviceParam wikibase:language "de,en". } }')
+        rows = sparql(q)
+        known = {}
+        for row in rows:
+            c = row['c']['value'].rsplit('/', 1)[1]
+            lon, lat = map(float, row['coord']['value'][6:-1].split())
+            elev = round(float(row['elev']['value']))
+            name = row['hpLabel']['value']
+            if re_qid(name):
+                name = ''  # kein Name (nur Wikidata-Nummer)
+            wiki = (urllib.parse.unquote(row['a']['value'].rsplit('/wiki/', 1)[1]) if 'a' in row
+                    else 'en:' + urllib.parse.unquote(row['b']['value'].rsplit('/wiki/', 1)[1]) if 'b' in row else '')
+            if c not in known or elev > known[c][3]:
+                known[c] = [name, round(lon, 5), round(lat, 5), elev, wiki]
+        json.dump(known, open(path, 'w', encoding='utf-8'), ensure_ascii=False)
+    else:
+        known = {}
+    print(f'Höchste Punkte: {len(known)} Länder', file=sys.stderr)
+    return known
+
+
+def re_qid(s):
+    return len(s) > 1 and s[0] == 'Q' and s[1:].isdigit()
+
+
+def build_countries(cache, use_wikidata=True):
     data = json.load(open(fetch('countries', cache), encoding='utf-8'))
     feats = []
     for f in data['features']:
@@ -217,6 +330,9 @@ def build_countries(cache):
             'polys': polygons(f['geometry']),
         })
     colors = color_countries(feats)
+    borders = border_lines(feats)
+    peaks = highest_points(feats, cache, use_wikidata)
+    print(f'Grenzlinien: {len(borders)}', file=sys.stderr)
     lakes = json.load(open(fetch('lakes', cache), encoding='utf-8'))
     lake_polys = []
     for f in lakes['features']:
@@ -226,11 +342,13 @@ def build_countries(cache):
         'scale': Q,
         'countries': [
             {'n': f['name'], 'i': f['iso2'], 'c': c, 'l': f['label'], 'z': f['minLabel'], 'e': f['pop'], 'q': f['wikidata'],
-             'p': encode(f['polys'], FINE_TOL), 'g': encode(f['polys'], COARSE_TOL, 0.08)}
+             'p': encode(f['polys'], FINE_TOL), 'g': encode(f['polys'], COARSE_TOL, 0.08), 'h': peaks.get(f['wikidata'])}
             for f, c in zip(feats, colors)
         ],
         'lakes': encode(lake_polys, FINE_TOL),
         'lakesCoarse': encode(lake_polys, COARSE_TOL, 0.3),
+        'borders': encode_lines(borders, FINE_TOL),
+        'bordersCoarse': encode_lines(borders, COARSE_TOL),
     }, {f['iso2']: f['name'] for f in feats if f['iso2']}
 
 
@@ -269,7 +387,43 @@ def wikidata(geonames_ids, cache):
         print(f'Wikidata {k + len(batch)}/{len(todo)}', file=sys.stderr)
         json.dump(known, open(path, 'w', encoding='utf-8'), ensure_ascii=False)
         time.sleep(1)
+    # Ohne deutschen Artikel: englischen Artikel suchen (gespeichert als „en:Titel“)
+    todo = [g for g in geonames_ids if known.get(g, {}).get('q') and not known[g].get('wiki') and not known[g].get('en_checked')]
+    for k in range(0, len(todo), 400):
+        batch = todo[k:k + 400]
+        by_q = {known[g]['q']: g for g in batch}
+        q = ('SELECT ?item ?a WHERE { VALUES ?item {' + ' '.join(f'wd:{x}' for x in by_q) + '} '
+             '?a schema:about ?item; schema:isPartOf <https://en.wikipedia.org/> }')
+        rows = sparql(q)
+        for g in batch:
+            known[g]['en_checked'] = True
+        for row in rows:
+            g = by_q.get(row['item']['value'].rsplit('/', 1)[1])
+            if g:
+                known[g]['wiki'] = 'en:' + urllib.parse.unquote(row['a']['value'].rsplit('/wiki/', 1)[1])
+        print(f'Wikidata englisch {k + len(batch)}/{len(todo)}', file=sys.stderr)
+        json.dump(known, open(path, 'w', encoding='utf-8'), ensure_ascii=False)
+        time.sleep(1)
     return known
+
+
+def sparql(q):
+    req = urllib.request.Request('https://query.wikidata.org/sparql', data=urllib.parse.urlencode({'query': q, 'format': 'json'}).encode(), headers=UA)
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(req, timeout=180) as r:
+                return json.load(r)['results']['bindings']
+        except Exception as e:  # noqa: BLE001
+            print('Wikidata-Fehler, neuer Versuch', e, file=sys.stderr)
+            time.sleep(5 * (attempt + 1))
+    return []
+
+
+def wiki_url(title):
+    if not title:
+        return ''
+    lang, t = ('en', title[3:]) if title.startswith('en:') else ('de', title)
+    return f"https://{lang}.wikipedia.org/wiki/{t.replace(' ', '_')}"
 
 
 def fix_populations(rows, ne_by_gn):
@@ -353,6 +507,14 @@ def build_cities(cache, country_names, use_wikidata):
                 if d < 0.05 and (best is None or d < best[0]):
                     best = (d, c)
             city = best[1] if best else None
+        # Nummer zeigt manchmal auf einen Stadtteil (z. B. Žižkov statt Prag): gleichnamigen größeren Ort in ≈ 20 km nehmen
+        if city:
+            near = [c for c in rows if c['cc'] == city['cc'] and (c['lat'] - p['LATITUDE']) ** 2 + (c['lon'] - p['LONGITUDE']) ** 2 < 0.04]
+            biggest = max(near, key=lambda c: c['pop'], default=city)
+            names = {str(p.get(k) or '').lower() for k in ('NAME', 'NAMEASCII', 'NAME_EN')} - {''}
+            if biggest['pop'] > 2 * city['pop'] and biggest['name'].lower() in names and city['name'].lower() not in names:
+                print(f"Hauptstadt {p['NAME']}: {city['name']} → {biggest['name']}", file=sys.stderr)
+                city = biggest
         if not city:  # sehr kleine Hauptstadt (< 1.000 Einwohner): aus Natural Earth übernehmen
             iso = p['ISO_A2'] if p['ISO_A2'] != '-99' else ''
             city = {'gn': str(p['GEONAMESID']), 'name': p['NAME'], 'lat': p['LATITUDE'], 'lon': p['LONGITUDE'],
@@ -407,7 +569,7 @@ def main():
     a = ap.parse_args()
     os.makedirs(a.cache, exist_ok=True)
 
-    countries, names = build_countries(a.cache)
+    countries, names = build_countries(a.cache, not a.no_wikidata)
     app, rows = build_cities(a.cache, names, not a.no_wikidata)
 
     out = os.path.join(ROOT, 'public', 'data', 'political')
@@ -426,7 +588,7 @@ def main():
                 continue
             w.writerow([c['de'], c['name'], c['cc'], c['country'], CONTINENTS.get(c['cont'], ''), c['pop'], round(c['lat'], 5), round(c['lon'], 5),
                         c.get('rc', ''), c.get('rk', ''), c.get('rw', ''), c.get('cap', ''),
-                        f"https://de.wikipedia.org/wiki/{c['wiki'].replace(' ', '_')}" if c['wiki'] else '', c['gn'],
+                        wiki_url(c['wiki']), c['gn'],
                         '' if c['elev'] is None else c['elev'], c.get('agglo') or '', c.get('admin_pop') or '',
                         c['part_of']['de'] if c.get('part_of') else ''])
     print(f"App-Städte: {len(app['cities'])}, Orte gesamt (Rangliste): {len(rows)}", file=sys.stderr)

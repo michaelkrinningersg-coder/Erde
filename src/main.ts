@@ -38,7 +38,7 @@ async function main() {
   };
   setEarliest(viewer.clock.startTime);
   time.onRangeChange = setEarliest;
-  const political = new PoliticalView(viewer);
+  const political = new PoliticalView(viewer, layers.day);
   viewer.clock.onTick.addEventListener((clock) => {
     if (political.active) return; // politische Karte ist statisch: keine Wolken-/Farbbilder nachladen
     // Echtfarbenbild (~2–3 km) beim nahen Reinzoomen ausblenden → darunter die scharfe 10-m-Karte
