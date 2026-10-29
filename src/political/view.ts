@@ -21,7 +21,7 @@ import {
   ScreenSpaceEventType,
   VerticalOrigin,
   type ImageryLayer,
-  type PointPrimitive,
+  type Billboard,
   type Viewer,
 } from 'cesium';
 import { icon } from '../svgIcons';
@@ -48,7 +48,7 @@ import {
   type Poly,
 } from './geo';
 import { LabelManager, rangeForZoom, type LabelItem } from './labels';
-import { markerIcon, MarkerLayer, type MarkerItem } from './markers';
+import { CITY_CLASSES, cityClass, cityIcon, markerIcon, MarkerLayer, type MarkerItem } from './markers';
 import { MyMap, shrinkPhoto, type OwnPlace } from './mymap';
 import { dayLength, fetchWeather, sunTimes, timeIn, todayIn } from './sunweather';
 import { CanvasLayer, COARSE_MAX_LEVEL, fillPolys, strokeLines, strokePolys, widthFor, type TileView } from './tiles';
@@ -82,7 +82,7 @@ interface HistCountry {
 interface City {
   row: CityRow;
   pos: Cartesian3;
-  point?: PointPrimitive;
+  point?: Billboard;
 }
 
 interface MeasurePoint {
@@ -206,7 +206,7 @@ export class PoliticalView {
   private highlight?: Country;
 
   private readonly labels: LabelManager;
-  private readonly points = new PointPrimitiveCollection();
+  private readonly points = new BillboardCollection();
   private readonly capitals = new BillboardCollection();
   private readonly quakePoints = new PointPrimitiveCollection();
   private readonly markers = new Map<string, MarkerLayer>();
@@ -236,6 +236,8 @@ export class PoliticalView {
   private readonly measureBtn = document.createElement('button');
   private readonly hint = document.createElement('span');
   private readonly coords = document.createElement('div');
+  private readonly scaleBar = document.createElement('div');
+  private lastScale = 0;
 
   constructor(
     private readonly viewer: Viewer,
@@ -275,6 +277,40 @@ export class PoliticalView {
       this.onState?.();
     };
     this.buildDom();
+    viewer.scene.postRender.addEventListener(() => this.updateScaleBar());
+  }
+
+  /** Maßstab unten rechts: erscheint beim Heranzoomen (Länderkarte und Satellitenbild) */
+  private updateScaleBar() {
+    if (!this.active) return;
+    const now = performance.now();
+    if (now - this.lastScale < 200) return;
+    this.lastScale = now;
+    const scene = this.viewer.scene;
+    const w = scene.canvas.clientWidth;
+    const h = scene.canvas.clientHeight;
+    const pick = (x: number) => {
+      const ray = this.viewer.camera.getPickRay(new Cartesian2(x, h - 70));
+      const p = ray && scene.globe.pick(ray, scene);
+      return p ? Cartographic.fromCartesian(p) : undefined;
+    };
+    const a = pick(w / 2 - 50);
+    const b = pick(w / 2 + 50);
+    if (!a || !b || this.viewer.camera.positionCartographic.height > 7e6) {
+      this.scaleBar.classList.add('hidden');
+      return;
+    }
+    const mpp = new EllipsoidGeodesic(a, b, Ellipsoid.WGS84).surfaceDistance / 100;
+    // runde Länge (1, 2, 5 × 10ⁿ), höchstens 130 Pixel breit
+    const max = mpp * 130;
+    const pow = Math.pow(10, Math.floor(Math.log10(max)));
+    const nice = [5, 2, 1].map((f) => f * pow).find((v) => v <= max) ?? pow;
+    const px = nice / mpp;
+    const label = nice >= 1000 ? `${fmt(nice / 1000)} km` : `${fmt(nice)} m`;
+    const bar = this.scaleBar.firstElementChild as HTMLElement;
+    bar.style.width = `${px.toFixed(0)}px`;
+    (this.scaleBar.lastElementChild as HTMLElement).textContent = label;
+    this.scaleBar.classList.remove('hidden');
   }
 
   private get canvasLayers() {
@@ -327,6 +363,7 @@ export class PoliticalView {
     this.dragOutline = undefined;
     this.card.classList.add('hidden');
     this.coords.classList.add('hidden');
+    this.scaleBar.classList.add('hidden');
     this.saved?.();
     this.saved = undefined;
     document.body.classList.remove('political-mode');
@@ -448,12 +485,13 @@ export class PoliticalView {
           id: { city: row },
         });
       } else {
+        const cls = cityClass(pop);
+        const size = CITY_CLASSES[cls].size;
         city.point = this.points.add({
           position: pos,
-          pixelSize: 4 + Math.max(0, Math.log10(pop / 1e4)) * 2,
-          color: Color.WHITE,
-          outlineColor: Color.fromCssColorString('#20242c'),
-          outlineWidth: 1.2,
+          image: cityIcon(cls),
+          width: size,
+          height: size,
           scaleByDistance: new NearFarScalar(1e6, 1, 1.3e7, 0.6),
           distanceDisplayCondition: new DistanceDisplayCondition(0, pointRange(pop)),
           id: { city: row },
@@ -1868,7 +1906,11 @@ export class PoliticalView {
 
     this.coords.id = 'coord-readout';
     this.coords.className = 'glass hidden';
-    document.body.append(this.bar, this.card, this.coords);
+    this.scaleBar.id = 'scale-bar';
+    this.scaleBar.className = 'glass hidden';
+    this.scaleBar.title = 'Maßstab';
+    this.scaleBar.append(document.createElement('i'), document.createElement('span'));
+    document.body.append(this.bar, this.card, this.coords, this.scaleBar);
   }
 }
 

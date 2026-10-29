@@ -376,3 +376,60 @@ export class MarkerLayer {
     this.labels.show(this.key, v);
   }
 }
+
+// ── Städte nach Größe: eigenes Zeichen je Größenklasse (wie im Atlas) ──────────
+
+export interface CityClass {
+  min: number;
+  label: string;
+  /** Kantenlänge des Symbols in Pixel */
+  size: number;
+}
+
+export const CITY_CLASSES: CityClass[] = [
+  { min: 1_000_000, label: 'über 1 Mio. Einwohner', size: 14 },
+  { min: 500_000, label: '500.000 – 1 Mio.', size: 12 },
+  { min: 250_000, label: '250.000 – 500.000', size: 11 },
+  { min: 100_000, label: '100.000 – 250.000', size: 9 },
+  { min: 0, label: 'unter 100.000', size: 7 },
+];
+
+export const cityClass = (pop: number) => CITY_CLASSES.findIndex((c) => pop >= c.min);
+
+/** Symbol einer Größenklasse (0 = größte); groß gezeichnet, Anzeige über width/height */
+export function cityIcon(cls: number): HTMLCanvasElement {
+  return canvasIcon(`city${cls}`, 14, (g) => {
+    const dark = '#1c2029';
+    g.translate(7, 7);
+    const circle = (r: number, fill: string, stroke?: string, w = 1.4) => {
+      g.beginPath();
+      g.arc(0, 0, r, 0, Math.PI * 2);
+      g.fillStyle = fill;
+      g.fill();
+      if (stroke) {
+        g.lineWidth = w;
+        g.strokeStyle = stroke;
+        g.stroke();
+      }
+    };
+    switch (cls) {
+      case 0: // über 1 Mio.: dunkler Kreis mit weißem Ring und dunklem Kern
+        circle(6.2, dark, '#fff', 1.4);
+        circle(3.6, '#fff');
+        circle(2.1, dark);
+        break;
+      case 1: // 500.000 – 1 Mio.: dunkler Kreis mit weißem Rand
+        circle(5.6, dark, '#fff', 1.6);
+        break;
+      case 2: // 250.000 – 500.000: weißer Kreis mit dunklem Punkt
+        circle(5.4, '#fff', dark, 1.6);
+        circle(2, dark);
+        break;
+      case 3: // 100.000 – 250.000: weißer Kreis, dicker Rand
+        circle(5, '#fff', dark, 2);
+        break;
+      default: // unter 100.000: kleiner weißer Kreis
+        circle(4.8, '#fff', dark, 1.8);
+    }
+  });
+}

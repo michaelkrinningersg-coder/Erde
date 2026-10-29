@@ -4,6 +4,7 @@ import { icon, type IconName } from '../svgIcons';
 import { COLOR_MODES } from './colors';
 import { HISTORY_YEARS } from './data';
 import { fmt } from './geo';
+import { CITY_CLASSES, cityIcon, markerIcon } from './markers';
 import type { Options, PoliticalView, SearchHit } from './view';
 
 type BoolKey = { [K in keyof Options]: Options[K] extends boolean ? K : never }[keyof Options];
@@ -87,6 +88,15 @@ export function buildPoliticalPanel(view: PoliticalView, container: HTMLElement)
           ]),
     );
   });
+  // Zeichenerklärung der Städte
+  const sym = (c: HTMLCanvasElement, size: number) => h('img', { src: c.toDataURL(), width: size, height: size, alt: '' });
+  const cityLegend = h(
+    'div',
+    { class: 'legend city-legend', title: 'Zeichen der Städte' },
+    h('span', { class: 'legend-item' }, sym(markerIcon('capital'), 14), 'Hauptstadt'),
+    h('span', { class: 'legend-item' }, sym(markerIcon('seat'), 14), 'Regierungssitz u. a.'),
+    ...CITY_CLASSES.map((c, i) => h('span', { class: 'legend-item' }, sym(cityIcon(i), c.size), c.label)),
+  );
   const mapSection = section(
     'map',
     'Karte',
@@ -94,6 +104,7 @@ export function buildPoliticalPanel(view: PoliticalView, container: HTMLElement)
     h('div', { class: 'row wrap' }, baseSel, yearSel),
     h('label', { class: 'row field-row', title: 'Länder einfärben nach Werten, Gruppen oder Bündnissen' }, icon('daynight', 18), colorSel),
     legend,
+    cityLegend,
     bordersRow,
     sw('admin1', 'borders', 'Bundesländer & Provinzen', 'Grenzen und Namen der Bundesländer, Staaten, Provinzen …'),
     sw('disputed', 'borders', 'Umstrittene Gebiete', 'Gebiete, die mehrere Länder beanspruchen (schraffiert)'),

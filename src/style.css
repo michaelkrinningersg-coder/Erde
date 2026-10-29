@@ -1227,3 +1227,42 @@ body.political-mode #political-panel {
 #city-card a {
   color: var(--accent-2);
 }
+
+#political-panel .city-legend {
+  border-top: 1px solid var(--glass-border);
+  padding-top: 6px;
+}
+
+#political-panel .city-legend img {
+  display: inline-block;
+}
+
+/* Maßstab (politische Karte) */
+#scale-bar {
+  position: absolute;
+  right: 12px;
+  bottom: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  z-index: 10;
+}
+
+#scale-bar i {
+  display: block;
+  height: 8px;
+  border: 2px solid var(--text);
+  border-top: none;
+  transition: width 0.2s;
+}
+
+@media (max-width: 700px) {
+  #scale-bar {
+    bottom: 150px;
+    right: auto;
+    left: 12px;
+  }
+}

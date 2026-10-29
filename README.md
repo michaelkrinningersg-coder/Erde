@@ -16,7 +16,7 @@ Interaktive 3D-Erde im Browser – für mich und meine Kinder.
 - **Politische Karte** (Karten-Knopf oben): statisch, ohne Wolken und Zeit, mit eigenem Bedienfeld
   - Länderkarte (Grenzen 1:10 Mio.) oder **Satellitenbild** mit zuschaltbaren Grenzen; **historische Grenzen** 1815–1994
   - **Einfärben** nach Einwohnern, Fläche, Dichte, Kontinent, Sprache, Währung oder **Bündnis** (EU, Euro, Schengen, NATO, UNO, G7, G20, …)
-  - Hauptstädte (◉) und Regierungssitze (▣), **43.000 Städte** mit Größenregler, Bundesländer/Provinzen, umstrittene Gebiete, Nachbarländer
+  - Hauptstädte (◉) und Regierungssitze (▣), **43.000 Städte** mit eigenem Zeichen je Größenklasse und Größenregler, **Maßstab** beim Heranzoomen, Bundesländer/Provinzen, umstrittene Gebiete, Nachbarländer
   - **Wasser**: Meere, Seen, Flüsse (anklickbar mit Länge), tiefste Punkte · **Linien**: Äquator, Wende-/Polarkreise, Datumsgrenze, Gradnetz
   - **Orte**: höchste Berge, Weltwunder, Bauwerke, UNESCO-Welterbe, Vulkane, Erdbeben live, Nationalparks, Wüsten, Gebirge & Seven Summits, Wasserfälle, Pole & Extrempunkte, Flughäfen, Häfen & Kanäle; **Rekorde**-Listen (Inseln, Halbinseln, Kaps)
   - **Steckbriefe** mit Flagge, Einwohnern, Fläche, Sprache, Währung, Vorwahl, Kfz-Zeichen, Fahrseite, Bündnissen; Städte mit Rängen, Höhe, Ortszeit, Sonnenauf-/-untergang (Datum wählbar) und auf Wunsch Wetter
