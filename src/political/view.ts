@@ -48,7 +48,7 @@ import {
   type Poly,
 } from './geo';
 import { LabelManager, rangeForZoom, type LabelItem } from './labels';
-import { CITY_CLASSES, cityClass, cityIcon, markerIcon, MarkerLayer, type MarkerItem } from './markers';
+import { CITY_CLASSES, cityClass, cityIcon, iconUrl, markerIcon, MarkerLayer, type MarkerItem } from './markers';
 import { MyMap, shrinkPhoto, type OwnPlace } from './mymap';
 import { dayLength, fetchWeather, sunTimes, timeIn, todayIn } from './sunweather';
 import { CanvasLayer, COARSE_MAX_LEVEL, fillPolys, strokeLines, strokePolys, widthFor, type TileView } from './tiles';
@@ -430,8 +430,8 @@ export class PoliticalView {
   }
 
   private buildCities() {
-    const capImg = markerIcon('capital');
-    const seatImg = markerIcon('seat');
+    const capImg = iconUrl(markerIcon('capital'));
+    const seatImg = iconUrl(markerIcon('seat'));
     const items: LabelItem[] = [];
     for (const row of this.cityData!.cities) {
       const [name, , pop, lat, lon, , , , cap] = row;
@@ -453,7 +453,7 @@ export class PoliticalView {
         const size = CITY_CLASSES[cls].size;
         city.point = this.points.add({
           position: pos,
-          image: cityIcon(cls),
+          image: iconUrl(cityIcon(cls)),
           width: size,
           height: size,
           scaleByDistance: new NearFarScalar(1e6, 1, 1.3e7, 0.6),
@@ -1809,7 +1809,7 @@ export class PoliticalView {
     if (name) {
       this.pinSrc.entities.add({
         position: Cartesian3.fromDegrees(lon, lat),
-        billboard: { image: markerIcon('pin'), width: 26, height: 26, verticalOrigin: VerticalOrigin.BOTTOM, disableDepthTestDistance: Number.POSITIVE_INFINITY },
+        billboard: { image: iconUrl(markerIcon('pin')), width: 26, height: 26, verticalOrigin: VerticalOrigin.BOTTOM, disableDepthTestDistance: Number.POSITIVE_INFINITY },
       });
     }
     this.viewer.camera.flyTo({ destination: Cartesian3.fromDegrees(lon, lat, height), orientation: { heading: 0, pitch: -Math.PI / 2, roll: 0 }, duration: 2 });

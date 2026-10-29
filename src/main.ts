@@ -11,6 +11,7 @@ import { Flights } from './objects/flights';
 import { Rockets } from './objects/rocketControl';
 import { Satellites } from './objects/satellites';
 import { ScaleBar } from './scaleBar';
+import { enhanceAllSelects } from './selectMenu';
 import { Sky } from './objects/sky';
 import { SolarSystemView } from './solar/solarSystem';
 import { TimeControl } from './time';
@@ -91,6 +92,7 @@ async function main() {
     { passive: true },
   );
 
+  enhanceAllSelects();
   buildUi({ viewer, political, layers, clouds, color, colorAmerica, solar, home, sky, satellites, flights, rockets, camera, time });
 
   // Für Experimente in der Browser-Konsole

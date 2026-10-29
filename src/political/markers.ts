@@ -335,7 +335,7 @@ export class MarkerLayer {
     for (const it of items) {
       const pos = Cartesian3.fromDegrees(it.lon, it.lat);
       const id = { kind: this.key, item: it.data };
-      const icon = markerIcon(it.icon);
+      const icon = iconUrl(markerIcon(it.icon));
       const pin = it.icon === 'extreme' || it.icon === 'pin' || it.icon === 'peak' || it.icon === 'summit';
       this.billboards.add({
         position: pos,
@@ -432,4 +432,19 @@ export function cityIcon(cls: number): HTMLCanvasElement {
         circle(4.8, '#fff', dark, 1.8);
     }
   });
+}
+
+const urlCache = new Map<HTMLCanvasElement, string>();
+
+/**
+ * Bild-Adresse eines Symbols. Cesium legt Bilder mit gleicher Adresse nur einmal in seinen Bildspeicher –
+ * ein Canvas dagegen bei jedem Billboard neu (bei 43.000 Städten viel zu langsam).
+ */
+export function iconUrl(c: HTMLCanvasElement) {
+  let u = urlCache.get(c);
+  if (!u) {
+    u = c.toDataURL();
+    urlCache.set(c, u);
+  }
+  return u;
 }
