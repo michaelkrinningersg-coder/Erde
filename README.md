@@ -18,7 +18,7 @@ Interaktive 3D-Erde im Browser – für mich und meine Kinder.
   - **Einfärben** nach Einwohnern, Fläche, Dichte, Kontinent, Sprache, Währung oder **Bündnis** (EU, Euro, Schengen, NATO, UNO, G7, G20, …)
   - Hauptstädte (◉) und Regierungssitze (▣), **43.000 Städte** mit eigenem Zeichen je Größenklasse und Größenregler, **Maßstab** beim Heranzoomen, Bundesländer/Provinzen, umstrittene Gebiete, Nachbarländer
   - **Wasser**: Meere, Seen, Flüsse (anklickbar mit Länge), tiefste Punkte · **Linien**: Äquator, Wende-/Polarkreise, Datumsgrenze, Gradnetz
-  - **Orte**: höchste Berge, Weltwunder, Bauwerke, UNESCO-Welterbe, Vulkane, Erdbeben live, Nationalparks, Wüsten, Gebirge & Seven Summits, Wasserfälle, Pole & Extrempunkte, Flughäfen, Häfen & Kanäle; **Rekorde**-Listen (Inseln, Halbinseln, Kaps)
+  - **Orte**: höchste Berge, Weltwunder, Bauwerke, UNESCO-Welterbe, Vulkane (Regler: letzter Ausbruch), Erdbeben live (Regler: Stärke), Nationalparks, Wüsten, Gebirge & Seven Summits, Wasserfälle, Pole & Extrempunkte, Flughäfen, Häfen & Kanäle; **Rekorde**-Listen (Inseln, Halbinseln, Kaps)
   - **Steckbriefe** mit Flagge, Einwohnern, Fläche, Sprache, Währung, Vorwahl, Kfz-Zeichen, Fahrseite, Bündnissen und **Nationalhymne zum Abspielen**; Städte mit Rängen, Höhe, Ortszeit, Sonnenauf-/-untergang (Datum wählbar) und auf Wunsch Wetter
   - **Länder-Quiz** für Kinder: „Wo ist Italien?“ wird vorgelesen, Flagge als Hilfe, Kind tippt das Land an; Gebiet (Europa … Welt) und Schwierigkeit wählbar, Sterne am Ende
   - **Suche**, **Luftlinie messen**, **zwei Länder vergleichen**, **Größenvergleich** (Länderumriss in echter Größe verschieben)

@@ -22,6 +22,7 @@ import {
   VerticalOrigin,
   type ImageryLayer,
   type Billboard,
+  type PointPrimitive,
   type Viewer,
 } from 'cesium';
 import { icon } from '../svgIcons';
@@ -57,6 +58,10 @@ import { CanvasLayer, COARSE_MAX_LEVEL, fillPolys, strokeLines, strokePolys, wid
 const WATER = '#6aa5dc';
 const BORDER = 'rgba(55, 60, 72, 0.75)';
 const SEA_TEXT = '#1d4f8f';
+
+/** Stufen der Regler für Erdbeben (Stärke) und Vulkane (letzter Ausbruch vor höchstens … Jahren) */
+export const QUAKE_STEPS = [2.5, 3, 4, 5, 6, 7];
+export const VOLCANO_STEPS = [10, 100, 500, 1000, 10000, 100000];
 
 /** Stufen des Stadtgrößen-Reglers (Welt ab 10.000, Deutschland ab 5.000 Einwohnern) */
 export const CITY_STEPS = [5_000, 10_000, 20_000, 50_000, 100_000, 250_000, 500_000, 1_000_000, 2_000_000, 5_000_000];
@@ -122,6 +127,10 @@ export interface Options {
   own: boolean;
   visited: boolean;
   weather: boolean;
+  /** Erdbeben ab dieser Stärke */
+  quakeMin: number;
+  /** Vulkane mit Ausbruch in den letzten … Jahren */
+  volcanoYears: number;
 }
 
 const DEFAULTS: Options = {
@@ -154,6 +163,8 @@ const DEFAULTS: Options = {
   own: false,
   visited: false,
   weather: false,
+  quakeMin: 2.5,
+  volcanoYears: 100000,
 };
 const OPT_KEY = 'erde.politik.optionen';
 
@@ -618,6 +629,12 @@ export class PoliticalView implements QuizHost {
           break;
         case 'weather':
           break;
+        case 'quakeMin':
+          this.filterQuakes();
+          break;
+        case 'volcanoYears':
+          this.buildVolcanoes();
+          break;
         default:
           // Orte-Ebenen aus places.json
           if (o[key]) await this.loadPlaces();
@@ -1009,12 +1026,7 @@ export class PoliticalView implements QuizHost {
     add('wonders', { fill: '#7a5208', bold: true, iconSize: 22 }, p.wonders.map((w) => ({ lon: w[1], lat: w[2], name: w[0], icon: 'wonder', range: 9e6, prio: 6e11, data: w })), o.wonders);
     add('buildings', { fill: '#33404d', bold: true }, p.buildings.map((b) => ({ lon: b[1], lat: b[2], name: b[0], icon: 'building', range: 2.5e6, prio: 3e7, data: b })), o.buildings);
     add('unesco', { fill: '#164f86', size: 11 }, p.unesco.map((u) => ({ lon: u[1], lat: u[2], name: u[0], icon: 'unesco', range: 9e5, prio: 2e5, iconRange: 9e6, data: u })), o.unesco);
-    add(
-      'volcanoes',
-      { fill: '#7a2410', size: 11 },
-      p.volcanoes.map((v) => ({ lon: v[1], lat: v[2], name: v[0], icon: v[5] !== null && v[5] >= 1900 ? 'volcanoActive' : 'volcano', range: 1.2e6, prio: 1e5 + v[4], iconRange: 1.4e7, data: v })),
-      o.volcanoes,
-    );
+    this.buildVolcanoes();
     add('parks', { fill: '#1f6b2a', size: 11 }, p.parks.map((n) => ({ lon: n[1], lat: n[2], name: n[0], icon: 'park', range: 1.4e6, prio: 1.5e5 + n[5] * 1000, iconRange: 9e6, data: n })), o.parks);
     add('summits', { fill: '#3e2a66', bold: true }, p.summits.map((s) => ({ lon: s[1], lat: s[2], name: `${s[0]}\n${fmt(s[3])} m`, icon: 'summit', range: 1e7, prio: 5.5e11, data: s })), o.ranges);
     add('waterfalls', { fill: '#145a8f', size: 11 }, p.waterfalls.map((w) => ({ lon: w[1], lat: w[2], name: w[0], icon: 'waterfall', range: 2.5e6, prio: 2e7, data: w })), o.waterfalls);
@@ -1038,6 +1050,27 @@ export class PoliticalView implements QuizHost {
     this.labels.set('ranges', region('range', '#5e3d22', p.ranges), o.ranges);
     this.buildGeoLines();
   }
+
+  /** Vulkane mit bekanntem letztem Ausbruch innerhalb des gewählten Zeitraums (unbekannte nie) */
+  private buildVolcanoes() {
+    if (!this.places) return;
+    const year = new Date().getFullYear();
+    const m = this.marker('volcanoes', { fill: '#7a2410', size: 11 });
+    m.setItems(
+      this.places.volcanoes
+        .filter((v) => v[5] !== null && year - v[5] <= this.opt.volcanoYears)
+        .map((v) => ({ lon: v[1], lat: v[2], name: v[0], icon: v[5]! >= 1900 ? 'volcanoActive' : 'volcano', range: 1.2e6, prio: 1e5 + v[4], iconRange: 1.4e7, data: v })),
+    );
+    m.show = this.active && this.opt.volcanoes;
+  }
+
+  /** Anzahl der Vulkane im gewählten Zeitraum (für das Bedienfeld) */
+  volcanoCount() {
+    const year = new Date().getFullYear();
+    return this.places?.volcanoes.filter((v) => v[5] !== null && year - v[5] <= this.opt.volcanoYears).length;
+  }
+
+  quakeCount?: number;
 
   private buildGeoLines() {
     this.lines.entities.removeAll();
@@ -1081,6 +1114,7 @@ export class PoliticalView implements QuizHost {
       features: { id: string; properties: { mag: number; place: string; time: number; url: string; tsunami: number }; geometry: { coordinates: [number, number, number] } }[];
     };
     this.quakePoints.removeAll();
+    this.quakeData = [];
     const now = Date.now();
     const items: LabelItem[] = [];
     for (const f of j.features) {
@@ -1097,11 +1131,27 @@ export class PoliticalView implements QuizHost {
         outlineWidth: 1,
         id: { kind: 'quake', item: data },
       });
+      this.quakeData.push({ mag: p.mag, point: this.quakePoints.get(this.quakePoints.length - 1) });
       if (p.mag >= 5) {
         items.push({ pos, text: `M ${fmt(p.mag, 1)}`, size: 11, bold: true, fill: '#7a1010', range: 1.4e7, prio: 2e11 + p.mag, offset: -8, id: { kind: 'quake', item: data } });
       }
     }
-    this.labels.set('quakes', items, this.opt.quakes);
+    this.labels.set('quakes', items, this.opt.quakes, (it) => (it.id as { item: { mag: number } }).item.mag >= this.opt.quakeMin);
+    this.filterQuakes();
+  }
+
+  private quakeData: { mag: number; point: PointPrimitive }[] = [];
+
+  /** Nur Erdbeben ab der gewählten Stärke */
+  private filterQuakes() {
+    let n = 0;
+    for (const q of this.quakeData) {
+      q.point.show = q.mag >= this.opt.quakeMin;
+      if (q.point.show) n++;
+    }
+    this.quakeCount = n;
+    this.labels.refresh();
+    this.onState?.();
   }
 
   private startQuakes() {

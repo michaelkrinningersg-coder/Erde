@@ -6,7 +6,7 @@ import { HISTORY_YEARS } from './data';
 import { fmt } from './geo';
 import { CITY_CLASSES, cityIcon, markerIcon } from './markers';
 import { QUIZ_LEVELS, QUIZ_REGIONS } from './quiz';
-import type { Options, PoliticalView, SearchHit } from './view';
+import { QUAKE_STEPS, VOLCANO_STEPS, type Options, type PoliticalView, type SearchHit } from './view';
 
 type BoolKey = { [K in keyof Options]: Options[K] extends boolean ? K : never }[keyof Options];
 
@@ -19,6 +19,28 @@ export function buildPoliticalPanel(view: PoliticalView, container: HTMLElement)
     updaters.push(() => (t.input.checked = view.opt[key]));
     return t.row;
   };
+
+  /** Regler mit festen Stufen; sichtbar nur, wenn die zugehörige Ebene an ist */
+  const stepSlider = (key: 'quakeMin' | 'volcanoYears', show: BoolKey, steps: number[], text: (v: number) => string, info: () => string, tip: string) => {
+    const input = h('input', { type: 'range', min: '0', max: String(steps.length - 1), step: '1', className: 'panel-slider', title: tip });
+    const label = h('span', { class: 'slider-value' });
+    const note = h('div', { class: 'muted small slider-note' });
+    const wrap = h('div', { class: 'slider-row', title: tip }, input, label, note);
+    input.addEventListener('input', () => {
+      label.textContent = text(steps[Number(input.value)]);
+      void view.set(key, steps[Number(input.value)]);
+    });
+    updaters.push(() => {
+      const v = view.opt[key];
+      const i = steps.reduce((best, s, j) => (Math.abs(s - v) < Math.abs(steps[best] - v) ? j : best), 0);
+      input.value = String(i);
+      label.textContent = text(steps[i]);
+      note.textContent = info();
+      wrap.classList.toggle('hidden', !view.opt[show]);
+    });
+    return wrap;
+  };
+  const years = (v: number) => (v >= 1000 ? `${fmt(v)}` : String(v));
 
   // ── Suche ──
   const input = h('input', { type: 'search', placeholder: 'Suchen: Land, Stadt, Fluss, Berg …', className: 'search-input' });
@@ -165,8 +187,24 @@ export function buildPoliticalPanel(view: PoliticalView, container: HTMLElement)
     sw('wonders', 'stars', 'Weltwunder', 'Die neuen sieben Weltwunder und die sieben Weltwunder der Antike'),
     sw('buildings', 'home', 'Berühmte Bauwerke', 'Eiffelturm, Burj Khalifa, Brandenburger Tor …'),
     sw('unesco', 'photo', 'UNESCO-Welterbe', 'Alle Welterbestätten'),
-    sw('volcanoes', null, 'Vulkane', 'Vulkane der letzten 12.000 Jahre; rot: Ausbruch seit 1900'),
-    sw('quakes', null, 'Erdbeben (live)', 'Erdbeben der letzten 7 Tage ab Stärke 2,5 – wird erst beim Einschalten geladen'),
+    sw('volcanoes', null, 'Vulkane', 'Vulkane mit bekanntem Ausbruch; rot: Ausbruch seit 1900'),
+    stepSlider(
+      'volcanoYears',
+      'volcanoes',
+      VOLCANO_STEPS,
+      (v) => `letzte ${years(v)} Jahre`,
+      () => (view.volcanoCount() !== undefined ? `${fmt(view.volcanoCount()!)} Vulkane · ohne bekannten Ausbruch nicht dabei` : ''),
+      'Nur Vulkane, die in diesem Zeitraum ausgebrochen sind',
+    ),
+    sw('quakes', null, 'Erdbeben (live)', 'Erdbeben der letzten 7 Tage – wird erst beim Einschalten geladen'),
+    stepSlider(
+      'quakeMin',
+      'quakes',
+      QUAKE_STEPS,
+      (v) => `ab Stärke ${fmt(v, 1)}`,
+      () => (view.quakeCount !== undefined ? `${fmt(view.quakeCount)} Erdbeben in den letzten 7 Tagen` : 'wird geladen …'),
+      'Nur Erdbeben ab dieser Stärke (Magnitude)',
+    ),
     sw('parks', null, 'Nationalparks', 'Bekannte Nationalparks'),
     sw('deserts', null, 'Wüsten', 'Namen der Wüsten'),
     sw('ranges', 'mountain', 'Gebirge & Seven Summits', 'Gebirgsnamen und die höchsten Berge der Kontinente'),
