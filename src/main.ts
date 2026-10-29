@@ -6,6 +6,7 @@ import { TimeImageLayer } from './clouds/timeLayer';
 import { CLOUDS, COLOR_AMERICA, COLOR_EUROPE, DATA_BASE, MAX_ZOOM_OUT_M, TIME } from './config';
 import { createViewer } from './globe';
 import { HomeControl } from './home';
+import { PoliticalView } from './political';
 import { Flights } from './objects/flights';
 import { Rockets } from './objects/rocketControl';
 import { Satellites } from './objects/satellites';
@@ -37,7 +38,9 @@ async function main() {
   };
   setEarliest(viewer.clock.startTime);
   time.onRangeChange = setEarliest;
+  const political = new PoliticalView(viewer);
   viewer.clock.onTick.addEventListener((clock) => {
+    if (political.active) return; // politische Karte ist statisch: keine Wolken-/Farbbilder nachladen
     // Echtfarbenbild (~2–3 km) beim nahen Reinzoomen ausblenden → darunter die scharfe 10-m-Karte
     const h = viewer.camera.positionCartographic.height;
     const fade = Math.min(1, Math.max(0, (h - 150e3) / (700e3 - 150e3)));
@@ -75,6 +78,7 @@ async function main() {
   viewer.canvas.addEventListener(
     'wheel',
     (e) => {
+      if (political.active) return;
       const far = Cartesian3.magnitude(viewer.camera.positionWC) > MAX_ZOOM_OUT_M * 0.9;
       outwardTicks = e.deltaY > 0 && far && !viewer.trackedEntity ? outwardTicks + 1 : 0;
       if (outwardTicks >= 3) {
@@ -85,10 +89,10 @@ async function main() {
     { passive: true },
   );
 
-  buildUi({ viewer, layers, clouds, color, colorAmerica, solar, home, sky, satellites, flights, rockets, camera, time });
+  buildUi({ viewer, political, layers, clouds, color, colorAmerica, solar, home, sky, satellites, flights, rockets, camera, time });
 
   // Für Experimente in der Browser-Konsole
-  Object.assign(window, { erde: { viewer, clouds, color, colorAmerica, sky, satellites, flights, rockets, camera, time } });
+  Object.assign(window, { erde: { viewer, political, clouds, color, colorAmerica, sky, satellites, flights, rockets, camera, time } });
 }
 
 void main();

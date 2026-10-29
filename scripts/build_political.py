@@ -1,0 +1,334 @@
+#!/usr/bin/env python3
+"""Baut die Daten für die politische Ansicht.
+
+Quellen (werden heruntergeladen):
+  - Natural Earth 1:50 Mio. Länder + Seen, 1:10 Mio. Orte (Hauptstädte)  – Public Domain
+  - GeoNames cities1000 (alle Orte ab 1.000 Einwohnern) + countryInfo  – CC BY 4.0
+  - Wikidata (deutscher Name + Link zur deutschen Wikipedia, für Städte ab 50.000) – CC0
+
+Ausgabe:
+  public/data/political/countries.json  Länderflächen (vereinfacht), Farben, Beschriftungspunkte, Seen
+  public/data/political/cities.json     Städte ab 10.000 Einwohnern (Deutschland ab 5.000) mit Rängen (Land, Kontinent, Welt)
+  data/staedte.csv                      Datenbank: alle Orte ab 5.000 Einwohnern weltweit mit Rängen
+
+Aufruf:  python3 scripts/build_political.py [--cache VERZEICHNIS] [--no-wikidata]
+"""
+import argparse
+import csv
+import io
+import json
+import os
+import sys
+import time
+import urllib.parse
+import urllib.request
+import zipfile
+from collections import defaultdict
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+NE = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/'
+SOURCES = {
+    'countries': NE + 'ne_50m_admin_0_countries.geojson',
+    'lakes': NE + 'ne_50m_lakes.geojson',
+    'places': NE + 'ne_10m_populated_places.geojson',
+    'cities': 'https://download.geonames.org/export/dump/cities1000.zip',
+    'countryinfo': 'https://download.geonames.org/export/dump/countryInfo.txt',
+}
+UA = {'User-Agent': 'Erde-Kinderprojekt/1.0 (privat, github.com/michaelkrinningersg-coder/Erde)'}
+
+APP_MIN_POP = 10_000  # Städte in der App …
+APP_MIN_POP_LOCAL = {'DE': 5_000}  # … in Deutschland noch kleinere
+CSV_MIN_POP = 5_000  # Datenbank-Datei
+WIKI_MIN_POP = 50_000  # Wikidata-Abgleich (deutscher Name, Wikipedia-Link)
+# Ortsteile, Ruinen, verlassene Orte usw. sind keine eigenen Städte
+SKIP_FCODES = {'PPLX', 'PPLH', 'PPLQ', 'PPLW', 'PPLCH'}
+
+CONTINENTS = {'EU': 'Europa', 'AS': 'Asien', 'AF': 'Afrika', 'NA': 'Nordamerika', 'SA': 'Südamerika', 'OC': 'Ozeanien', 'AN': 'Antarktis'}
+
+# Natural Earth führt einige „alternative Hauptstädte“, die nur historisch oder umstritten sind
+SKIP_CAPITALS = {'Kyoto', 'Baguio', 'Lagos', 'Quezon City', 'Tel Aviv', 'Bir Lehlou', 'Laayoune'}
+# Länder mit mehreren Sitzen: genaue Rolle (Schlüssel = Natural-Earth-Name)
+CAPITAL_ROLES = {
+    'Amsterdam': 'Hauptstadt',
+    'The Hague': 'Regierungssitz',
+    'Sucre': 'Hauptstadt (Verfassung)',
+    'La Paz': 'Regierungssitz',
+    'Pretoria': 'Regierungssitz',
+    'Cape Town': 'Parlamentssitz',
+    'Bloemfontein': 'Sitz des Obersten Gerichts',
+    'Yamoussoukro': 'Hauptstadt',
+    'Abidjan': 'Regierungssitz',
+    'Kuala Lumpur': 'Hauptstadt',
+    'Putrajaya': 'Regierungssitz',
+    'Sri Jayawardenepura Kotte': 'Hauptstadt (Parlament)',
+    'Colombo': 'Regierungssitz',
+    'Dodoma': 'Hauptstadt',
+    'Dar es Salaam': 'Regierungssitz',
+    'Porto-Novo': 'Hauptstadt',
+    'Cotonou': 'Regierungssitz',
+    'Santiago': 'Hauptstadt',
+    'Valparaíso': 'Parlamentssitz',
+    'Lobamba': 'Königssitz und Parlament',
+    'Mbabane': 'Regierungssitz',
+    'Bern': 'Bundesstadt',
+    'Hargeisa': 'Hauptstadt von Somaliland (nicht anerkannt)',
+}
+
+
+def fetch(name, cache):
+    path = os.path.join(cache, os.path.basename(SOURCES[name]))
+    if not os.path.exists(path):
+        print('lade', SOURCES[name], file=sys.stderr)
+        with urllib.request.urlopen(urllib.request.Request(SOURCES[name], headers=UA), timeout=120) as r, open(path, 'wb') as f:
+            f.write(r.read())
+    return path
+
+
+# ── Länder ────────────────────────────────────────────────────────────────
+
+Q = 100  # Koordinaten in 1/100 Grad (≈ 1 km) speichern
+
+
+def quantize_ring(ring):
+    out = []
+    for lon, lat in ring:
+        p = (round(lon * Q), round(lat * Q))
+        if not out or out[-1] != p:
+            out.append(p)
+    if len(out) > 1 and out[0] == out[-1]:
+        out.pop()
+    return out if len(out) >= 3 else None
+
+
+def polygons(geom):
+    polys = geom['coordinates'] if geom['type'] == 'MultiPolygon' else [geom['coordinates']]
+    res = []
+    for poly in polys:
+        rings = [r for r in (quantize_ring(r) for r in poly) if r]
+        if rings:
+            res.append(rings)
+    return res
+
+
+def neighbours(feats):
+    """Nachbarländer: gemeinsame Grenzpunkte (Natural Earth nutzt an Grenzen identische Stützpunkte)."""
+    owner = defaultdict(set)
+    for i, f in enumerate(feats):
+        for poly in f['polys']:
+            for ring in poly:
+                for p in ring:
+                    owner[p].add(i)
+    nb = defaultdict(set)
+    for s in owner.values():
+        if len(s) > 1:
+            for a in s:
+                nb[a] |= s - {a}
+    return nb
+
+
+def color_countries(feats):
+    """Farbe aus MAPCOLOR9 (für Nachbarschaft entworfen), Konflikte gierig auflösen."""
+    nb = neighbours(feats)
+    colors = [f['mapcolor'] - 1 for f in feats]
+    fixed = 0
+    for i in sorted(range(len(feats)), key=lambda i: -len(nb[i])):
+        used = {colors[j] for j in nb[i]}
+        if colors[i] in used:
+            free = [c for c in range(9) if c not in used]
+            if free:
+                colors[i] = free[0]
+                fixed += 1
+    clash = sum(1 for i in range(len(feats)) for j in nb[i] if colors[i] == colors[j]) // 2
+    print(f'Länder: {len(feats)}, Nachbarpaare: {sum(len(v) for v in nb.values()) // 2}, umgefärbt: {fixed}, gleiche Farbe: {clash}', file=sys.stderr)
+    return colors
+
+
+def build_countries(cache):
+    data = json.load(open(fetch('countries', cache), encoding='utf-8'))
+    feats = []
+    for f in data['features']:
+        p = f['properties']
+        feats.append({
+            'name': p['NAME_DE'] or p['NAME'],
+            'iso2': p['ISO_A2_EH'] if p['ISO_A2_EH'] != '-99' else '',
+            'mapcolor': int(p['MAPCOLOR9']),
+            'label': [round(p['LABEL_X'], 2), round(p['LABEL_Y'], 2)],
+            'minLabel': p['MIN_LABEL'],
+            'pop': int(p['POP_EST'] or 0),
+            'wikidata': p['WIKIDATAID'] or '',
+            'polys': polygons(f['geometry']),
+        })
+    colors = color_countries(feats)
+    lakes = json.load(open(fetch('lakes', cache), encoding='utf-8'))
+    lake_polys = []
+    for f in lakes['features']:
+        if f['properties'].get('scalerank', 9) <= 4:  # nur größere Seen
+            lake_polys += polygons(f['geometry'])
+    return {
+        'scale': Q,
+        'countries': [
+            {'n': f['name'], 'i': f['iso2'], 'c': c, 'l': f['label'], 'z': f['minLabel'], 'e': f['pop'], 'q': f['wikidata'], 'p': f['polys']}
+            for f, c in zip(feats, colors)
+        ],
+        'lakes': lake_polys,
+    }, {f['iso2']: f['name'] for f in feats if f['iso2']}
+
+
+# ── Städte ────────────────────────────────────────────────────────────────
+
+def wikidata(geonames_ids, cache):
+    path = os.path.join(cache, 'wikidata_cities.json')
+    known = json.load(open(path, encoding='utf-8')) if os.path.exists(path) else {}
+    todo = [g for g in geonames_ids if g not in known]
+    for k in range(0, len(todo), 400):
+        batch = todo[k:k + 400]
+        values = ' '.join(f'"{g}"' for g in batch)
+        q = ('SELECT ?gn ?item ?l ?a WHERE { VALUES ?gn {' + values + '} ?item wdt:P1566 ?gn . '
+             'OPTIONAL { ?item rdfs:label ?l FILTER(lang(?l) = "de") } '
+             'OPTIONAL { ?a schema:about ?item; schema:isPartOf <https://de.wikipedia.org/> } }')
+        req = urllib.request.Request('https://query.wikidata.org/sparql', data=urllib.parse.urlencode({'query': q, 'format': 'json'}).encode(), headers=UA)
+        for attempt in range(4):
+            try:
+                with urllib.request.urlopen(req, timeout=120) as r:
+                    rows = json.load(r)['results']['bindings']
+                break
+            except Exception as e:  # noqa: BLE001
+                print('Wikidata-Fehler, neuer Versuch', e, file=sys.stderr)
+                time.sleep(5 * (attempt + 1))
+        else:
+            rows = []
+        for g in batch:
+            known.setdefault(g, {})
+        for row in rows:
+            e = known[row['gn']['value']]
+            e.setdefault('q', row['item']['value'].rsplit('/', 1)[1])
+            if 'l' in row:
+                e.setdefault('de', row['l']['value'])
+            if 'a' in row:
+                e.setdefault('wiki', urllib.parse.unquote(row['a']['value'].rsplit('/wiki/', 1)[1]))
+        print(f'Wikidata {k + len(batch)}/{len(todo)}', file=sys.stderr)
+        json.dump(known, open(path, 'w', encoding='utf-8'), ensure_ascii=False)
+        time.sleep(1)
+    return known
+
+
+def build_cities(cache, country_names, use_wikidata):
+    # Länder → Kontinent und englischer Name als Rückfall
+    info = {}
+    for line in open(fetch('countryinfo', cache), encoding='utf-8'):
+        if line.startswith('#') or not line.strip():
+            continue
+        c = line.rstrip('\n').split('\t')
+        info[c[0]] = {'name': c[4], 'cont': c[8]}
+
+    # Hauptstädte und deutsche Namen aus Natural Earth (über die GeoNames-Nummer)
+    ne_by_gn, capitals = {}, []
+    for f in json.load(open(fetch('places', cache), encoding='utf-8'))['features']:
+        p = f['properties']
+        gn = str(p['GEONAMESID'])
+        ne_by_gn[gn] = p
+        if (p['ADM0CAP'] == 1 or p['CAPALT'] == 1) and p['NAME'] not in SKIP_CAPITALS and p['FEATURECLA'].startswith('Admin-0'):
+            capitals.append(p)
+
+    with zipfile.ZipFile(fetch('cities', cache)) as z:
+        text = z.read('cities1000.txt').decode('utf-8')
+    rows = []
+    for r in csv.reader(io.StringIO(text), delimiter='\t', quoting=csv.QUOTE_NONE):
+        if r[7] in SKIP_FCODES:
+            continue
+        cc = r[8]
+        rows.append({
+            'gn': r[0], 'name': r[1], 'lat': float(r[4]), 'lon': float(r[5]), 'cc': cc,
+            'pop': int(r[14] or 0), 'cont': info.get(cc, {}).get('cont', ''),
+        })
+
+    # Hauptstädte zuordnen: gleiche GeoNames-Nummer, sonst nächster Ort im selben Land
+    by_gn = {c['gn']: c for c in rows}
+    for p in capitals:
+        city = by_gn.get(str(p['GEONAMESID']))
+        if city and p['ISO_A2'] != '-99' and city['cc'] != p['ISO_A2']:
+            city = None  # falsche Nummer in Natural Earth (z. B. Colombo in Brasilien statt Sri Lanka)
+        if not city:
+            best = None
+            for c in rows:
+                if c['cc'] != p['ISO_A2']:
+                    continue
+                d = (c['lat'] - p['LATITUDE']) ** 2 + (c['lon'] - p['LONGITUDE']) ** 2
+                if d < 0.05 and (best is None or d < best[0]):
+                    best = (d, c)
+            city = best[1] if best else None
+        if not city:  # sehr kleine Hauptstadt (< 1.000 Einwohner): aus Natural Earth übernehmen
+            iso = p['ISO_A2'] if p['ISO_A2'] != '-99' else ''
+            city = {'gn': str(p['GEONAMESID']), 'name': p['NAME'], 'lat': p['LATITUDE'], 'lon': p['LONGITUDE'],
+                    'cc': iso, 'pop': int(p['POP_MIN'] or 0), 'cont': info.get(iso, {}).get('cont', ''), 'small': True}
+            rows.append(city)
+            by_gn[city['gn']] = city
+        city['cap'] = CAPITAL_ROLES.get(p['NAME'], 'Hauptstadt')
+        city.setdefault('ne', p)
+
+    rows.sort(key=lambda c: -c['pop'])
+    # Ränge unter allen Orten ab 1.000 Einwohnern (GeoNames)
+    n_world, n_cont, n_country = 0, defaultdict(int), defaultdict(int)
+    for c in rows:
+        if c.get('small'):
+            continue
+        n_world += 1
+        n_cont[c['cont']] += 1
+        n_country[c['cc']] += 1
+        c['rw'], c['rk'], c['rc'] = n_world, n_cont[c['cont']], n_country[c['cc']]
+
+    wiki = wikidata([c['gn'] for c in rows if c['pop'] >= WIKI_MIN_POP or c.get('cap')], cache) if use_wikidata else {}
+    for c in rows:
+        ne = c.get('ne') or ne_by_gn.get(c['gn'])
+        w = wiki.get(c['gn'], {})
+        c['de'] = w.get('de') or (ne and ne.get('NAME_DE')) or c['name']
+        c['wiki'] = w.get('wiki', '')
+        c['country'] = country_names.get(c['cc']) or info.get(c['cc'], {}).get('name', c['cc'])
+
+    countries = sorted({c['cc'] for c in rows})
+    app = {
+        'source': 'GeoNames (CC BY 4.0), Natural Earth, Wikidata',
+        'continents': CONTINENTS,
+        'countries': {cc: [country_names.get(cc) or info.get(cc, {}).get('name', cc), info.get(cc, {}).get('cont', ''), n_country[cc]] for cc in countries},
+        'continentCount': dict(n_cont),
+        'worldCount': n_world,
+        # [Name, Land, Einwohner, Breite, Länge, Rang Land, Rang Kontinent, Rang Welt, Hauptstadt-Rolle, Wikipedia-Titel]
+        'cities': [
+            [c['de'], c['cc'], c['pop'], round(c['lat'], 3), round(c['lon'], 3), c.get('rc', 0), c.get('rk', 0), c.get('rw', 0), c.get('cap', ''), c['wiki']]
+            for c in rows if c['pop'] >= APP_MIN_POP_LOCAL.get(c['cc'], APP_MIN_POP) or c.get('cap')
+        ],
+    }
+    return app, rows
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--cache', default=os.path.join(ROOT, '.cache', 'political'))
+    ap.add_argument('--no-wikidata', action='store_true')
+    a = ap.parse_args()
+    os.makedirs(a.cache, exist_ok=True)
+
+    countries, names = build_countries(a.cache)
+    app, rows = build_cities(a.cache, names, not a.no_wikidata)
+
+    out = os.path.join(ROOT, 'public', 'data', 'political')
+    os.makedirs(out, exist_ok=True)
+    json.dump(countries, open(os.path.join(out, 'countries.json'), 'w', encoding='utf-8'), ensure_ascii=False, separators=(',', ':'))
+    json.dump(app, open(os.path.join(out, 'cities.json'), 'w', encoding='utf-8'), ensure_ascii=False, separators=(',', ':'))
+
+    os.makedirs(os.path.join(ROOT, 'data'), exist_ok=True)
+    with open(os.path.join(ROOT, 'data', 'staedte.csv'), 'w', encoding='utf-8', newline='') as f:
+        w = csv.writer(f)
+        w.writerow(['stadt', 'name_original', 'land_code', 'land', 'kontinent', 'einwohner', 'breite', 'laenge',
+                    'rang_land', 'rang_kontinent', 'rang_welt', 'hauptstadt', 'wikipedia', 'geonames_id'])
+        for c in rows:
+            if c['pop'] < CSV_MIN_POP and not c.get('cap'):
+                continue
+            w.writerow([c['de'], c['name'], c['cc'], c['country'], CONTINENTS.get(c['cont'], ''), c['pop'], round(c['lat'], 5), round(c['lon'], 5),
+                        c.get('rc', ''), c.get('rk', ''), c.get('rw', ''), c.get('cap', ''),
+                        f"https://de.wikipedia.org/wiki/{c['wiki'].replace(' ', '_')}" if c['wiki'] else '', c['gn']])
+    print(f"App-Städte: {len(app['cities'])}, Orte gesamt (Rangliste): {len(rows)}", file=sys.stderr)
+
+
+if __name__ == '__main__':
+    main()

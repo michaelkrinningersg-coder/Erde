@@ -79,6 +79,18 @@ bauen), Unreal (schwer, Desktop-only).
 - Nacht: **NASA Black Marble** (VIIRS, 500 m) – nur auf der Nachtseite sichtbar
 - Mond: **NASA LRO**-Farbkarte 4K (Public Domain), Phase durch echte Sonnenbeleuchtung
 
+### Politische Karte
+
+- Länder: Natural Earth 1:50 Mio. (Public Domain), Farben aus `MAPCOLOR9` – das Skript prüft gemeinsame
+  Grenzpunkte und färbt die wenigen Konflikte um (Ergebnis: keine Nachbarn mit gleicher Farbe).
+- Gezeichnet als Kachelbild direkt im Browser (Canvas) → scharfe Grenzen in jeder Zoomstufe, kein Server.
+- Städte: GeoNames `cities1000` (CC BY 4.0). In der Karte weltweit ab 10.000, in Deutschland ab 5.000
+  Einwohnern (≈ 43.000 Orte); Ränge (Land/Kontinent/Welt) unter allen 162.000 Orten ab 1.000 Einwohnern.
+  Datenbank `data/staedte.csv`: alle Orte ab 5.000 Einwohnern weltweit (≈ 64.000).
+- Hinweis: GeoNames zählt teils das Verwaltungsgebiet (z. B. chinesische Großstädte mit Umland).
+- Hauptstädte inkl. Regierungs-, Parlaments- und Gerichtssitze (Natural Earth, Rollen von Hand ergänzt).
+- Namen erscheinen ohne Überlappung (Hauptstädte zuerst, dann nach Einwohnern), höchstens 260 gleichzeitig.
+
 ### Satelliten
 
 CelesTrak (OMM/JSON), alle 6 h über GitHub Actions; Schnappschuss liegt im Repo, damit die App
@@ -120,6 +132,7 @@ immer Daten hat. JWST hat keine Bahndaten (steht am L2) → Näherung „1,5 Mio
 | M12 | 3D-Modelle der Stationen, Teleskope und Rakete (Blender-Skript) | ✅ |
 | M13 | 10-Minuten-Bilder für die letzten 6 h (Echtfarben) | ✅ |
 | M14 | 10-Minuten-Infrarot für Europa/Amerika (Nachtseite) | Idee |
+| M15 | Politische Karte: Länder, Hauptstädte, 43.000 Städte mit Rängen, Luftlinie messen | ✅ |
 
 ## 7. Offene Punkte
 

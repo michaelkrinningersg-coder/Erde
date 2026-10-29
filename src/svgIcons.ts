@@ -46,6 +46,10 @@ const P: Record<string, string> = {
   gps: '<path d="M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 0c0 5-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/>',
   launch: '<path d="M4 20h16"/><path d="M12 3c2 1.5 3 3.8 2.7 6.6L13.5 12h-3L9.3 9.6C9 6.8 10 4.5 12 3z"/><path d="M10.5 14l-.8 3M13.5 14l.8 3M12 14v4"/>',
   expand: '<path d="M9 6l6 6-6 6"/>',
+  map: '<path d="M3 6.5l6-2.5 6 2.5 6-2.5v13.5l-6 2.5-6-2.5-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/>',
+  ruler:
+    '<rect x="1.8" y="8.2" width="20.4" height="7.6" rx="1.4" transform="rotate(-30 12 12)"/><path d="M7.2 13.6l-1-1.7M10 12l-1.5-2.6M12.8 10.4l-1-1.7M15.6 8.8l-1.5-2.6"/>',
+  city: '<path d="M3 20.5h18M5 20.5V9l5-3v14.5M10 20.5V4h6v16.5M16 20.5v-9h3.5v9"/>',
 };
 
 export type IconName = keyof typeof P;

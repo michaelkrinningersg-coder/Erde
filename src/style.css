@@ -794,3 +794,179 @@ button.go {
     white-space: normal;
   }
 }
+
+/* ── Politische Karte ─────────────────────────────────────────────── */
+#political-bar,
+#city-card {
+  color-scheme: dark;
+}
+
+#political-bar {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 40px;
+  display: none;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 10px;
+  z-index: 10;
+  max-width: calc(100% - 24px);
+}
+
+body.political-mode #political-bar {
+  display: flex;
+}
+
+body.political-mode #timebar,
+body.political-mode #topright,
+body.political-mode #panel-body,
+body.political-mode #mission-hud,
+body.political-mode .cesium-viewer-timelineContainer,
+body.political-mode .cesium-viewer-animationContainer {
+  display: none !important;
+}
+
+body.political-loading #political-bar::after {
+  content: 'Karte wird geladen …';
+  color: var(--muted);
+  font-size: 13px;
+}
+
+#political-bar .bar-ico {
+  display: inline-flex;
+  color: var(--muted);
+}
+
+#political-bar .measure-text {
+  font-size: 14px;
+  max-width: 46ch;
+}
+
+#political-bar .measure-text:empty {
+  display: none;
+}
+
+button.active {
+  background: var(--accent);
+  color: #1a1a1a;
+  border-color: var(--accent);
+}
+
+#city-card {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: min(340px, calc(100% - 24px));
+  padding: 12px 14px;
+  z-index: 11;
+}
+
+#city-card .card-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+#city-card h3 {
+  margin: 0 30px 4px 0;
+  font-size: 22px;
+}
+
+#city-card .cap-star {
+  color: #ff4b4f;
+}
+
+#city-card .sub {
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+#city-card .pop {
+  margin-bottom: 6px;
+}
+
+#city-card .big {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--accent);
+}
+
+#city-card table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 4px 0;
+}
+
+#city-card th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--muted);
+  padding: 3px 10px 3px 0;
+  vertical-align: top;
+}
+
+#city-card td {
+  padding: 3px 0;
+}
+
+#city-card .muted {
+  color: var(--muted);
+}
+
+#city-card .small {
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+#city-card .row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+#city-card .wiki-link {
+  color: var(--accent-2);
+  font-weight: 600;
+  padding: 6px 4px;
+}
+
+@media (max-width: 700px) {
+  #political-bar {
+    bottom: 34px;
+  }
+
+  #city-card {
+    top: auto;
+    bottom: 150px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+  }
+}
+
+#political-bar .slider-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#political-bar .city-slider {
+  width: 170px;
+  accent-color: var(--accent);
+}
+
+#political-bar .slider-text {
+  min-width: 92px;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 700px) {
+  #political-bar .city-slider {
+    width: 120px;
+  }
+}

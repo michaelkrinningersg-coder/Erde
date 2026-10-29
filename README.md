@@ -13,6 +13,7 @@ Interaktive 3D-Erde im Browser – für mich und meine Kinder.
 - **Flugzeug-Simulation** zwischen 24 Städten (z. B. Frankfurt ⇄ New York)
 - **Rakete zur ISS/Tiangong** von echten Startplätzen: Startfenster, Stufentrennung, Parkbahn, Andocken, nach 2 h Rückflug mit glühendem Wiedereintritt und Fallschirmen
 - **3D-Modelle** (per Blender-Skript gebaut): ISS, Tiangong, Hubble, James Webb, Chandra, XMM-Newton, Swift, Fermi, NuSTAR, Rakete mit Stufen und Kapsel
+- **Politische Karte** (Karten-Knopf oben): statisch, ohne Wolken und Zeit – Wasser blau, Länder in Farben, die sich von den Nachbarn unterscheiden, Ländernamen beim Heranzoomen, Hauptstädte (★, auch Regierungs-/Parlamentssitze), **43.000 Städte** (weltweit ab 10.000, Deutschland ab 5.000 Einwohnern) mit Regler für die Stadtgröße; Klick zeigt Einwohner, **Rang im Land, auf dem Kontinent und weltweit** und Wikipedia-Link; **Luftlinie messen** zwischen zwei Orten
 - Jedes Objekt einzeln ein-/ausblendbar
 
 Konzept, Datenquellen und Fahrplan: [docs/KONZEPT.md](docs/KONZEPT.md)
@@ -25,6 +26,7 @@ npm run dev          # http://localhost:5173
 ```
 
 Optional, um die Satelliten-Bahndaten lokal zu erneuern: `npm run fetch:sats`.
+Länder- und Städtedaten neu bauen: `python3 scripts/build_political.py` (lädt Natural Earth, GeoNames, Wikidata).
 Ohne Wolkenarchiv lädt die App die Wolken direkt bei EUMETSAT (langsamer, ~30 s pro Bild).
 
 ## Veröffentlichen (kostenlos über GitHub)
@@ -63,6 +65,8 @@ Datei klein (kein Electron). Wolken- und Bahndaten holt das Programm von der Git
 | `src/svgIcons.ts` | Eigener Symbolsatz |
 | `tools/blender/raumfahrt.py` | 3D-Modelle (Blender-Python), Ausgabe nach `public/models/` |
 | `src/solar/solarSystem.ts` | Sonnensystem-Ansicht (Three.js) |
+| `src/political.ts` | Politische Karte (Länder als Kachelbild, Städte, Steckbrief, Entfernung) |
+| `scripts/build_political.py` | Baut Länder- und Städtedaten (`public/data/political/`) und die Städte-Datenbank `data/staedte.csv` |
 | `src/home.ts` | Zuhause-Ort und Marker |
 | `src/camera.ts` | Fokuspunkt, „Blick aus dem All“, Mondflug |
 | `src/ui.ts`, `src/style.css` | Bedienfeld, Zeitleiste |
@@ -80,4 +84,6 @@ Datei klein (kein Electron). Wolken- und Bahndaten holt das Programm von der Git
 - Mond: NASA LRO / CGI Moon Kit (Public Domain)
 - Planeten-Texturen (Sonnensystem): [Solar System Scope](https://www.solarsystemscope.com/textures/) (CC BY 4.0)
 - Bahndaten: CelesTrak
+- Länder, Seen, Hauptstädte: [Natural Earth](https://www.naturalearthdata.com) (Public Domain)
+- Städte und Einwohnerzahlen: [GeoNames](https://www.geonames.org) (CC BY 4.0); deutsche Namen und Wikipedia-Links: Wikidata (CC0)
 - 3D-Globus: [CesiumJS](https://cesium.com/platform/cesiumjs/) (Apache 2.0), Sonnensystem: [three.js](https://threejs.org) (MIT)

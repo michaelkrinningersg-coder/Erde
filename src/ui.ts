@@ -9,6 +9,7 @@ import { LAUNCH_SITES, type RocketTarget } from './objects/rocket';
 import type { Rockets } from './objects/rocketControl';
 import type { Satellites } from './objects/satellites';
 import type { Sky } from './objects/sky';
+import type { PoliticalView } from './political';
 import type { SolarSystemView } from './solar/solarSystem';
 import { hydrateIcons, icon, type IconName } from './svgIcons';
 import type { TimeControl } from './time';
@@ -100,6 +101,7 @@ export interface UiDeps {
   color: TimeImageLayer;
   colorAmerica: TimeImageLayer;
   solar: SolarSystemView;
+  political: PoliticalView;
   home: HomeControl;
   sky: Sky;
   satellites: Satellites;
@@ -110,7 +112,7 @@ export interface UiDeps {
 }
 
 export function buildUi(d: UiDeps) {
-  const { viewer, layers, clouds, color, colorAmerica, solar, home, sky, satellites, flights, rockets, camera, time } = d;
+  const { viewer, political, layers, clouds, color, colorAmerica, solar, home, sky, satellites, flights, rockets, camera, time } = d;
   hydrateIcons();
   const body = document.getElementById('panel-body')!;
   const scene = viewer.scene;
@@ -323,6 +325,14 @@ export function buildUi(d: UiDeps) {
   const panel = document.getElementById('panel')!;
   if (window.innerWidth < 700) panel.classList.add('collapsed');
   document.getElementById('panel-toggle')!.addEventListener('click', () => panel.classList.toggle('collapsed'));
+
+  // ── Politische Karte ──────────────────────────────────────────────────
+  const politicalBtn = document.getElementById('political-btn')!;
+  politicalBtn.addEventListener('click', () => {
+    solar.close();
+    political.toggle();
+  });
+  political.onChange = (on) => politicalBtn.classList.toggle('active', on);
 
   // ── Einnorden ─────────────────────────────────────────────────────────
   const northBtn = document.getElementById('north-btn')!;
