@@ -60,7 +60,8 @@ const BORDER = 'rgba(55, 60, 72, 0.75)';
 const SEA_TEXT = '#1d4f8f';
 
 /** Stufen der Regler für Erdbeben (Stärke) und Vulkane (letzter Ausbruch vor höchstens … Jahren) */
-export const QUAKE_STEPS = [2.5, 3, 4, 5, 6, 7];
+// Erdbeben in 0,1er-Schritten von 2,5 bis 8,0 (der USGS-Feed beginnt bei 2,5)
+export const QUAKE_STEPS = Array.from({ length: 56 }, (_, i) => Math.round((2.5 + i * 0.1) * 10) / 10);
 export const VOLCANO_STEPS = [10, 100, 500, 1000, 10000, 100000];
 
 /** Stufen des Stadtgrößen-Reglers (Welt ab 10.000, Deutschland ab 5.000 Einwohnern) */

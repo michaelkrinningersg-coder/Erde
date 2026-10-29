@@ -201,7 +201,7 @@ export function buildPoliticalPanel(view: PoliticalView, container: HTMLElement)
       'quakeMin',
       'quakes',
       QUAKE_STEPS,
-      (v) => `ab Stärke ${fmt(v, 1)}`,
+      (v) => `ab Stärke ${v.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`,
       () => (view.quakeCount !== undefined ? `${fmt(view.quakeCount)} Erdbeben in den letzten 7 Tagen` : 'wird geladen …'),
       'Nur Erdbeben ab dieser Stärke (Magnitude)',
     ),
