@@ -97,6 +97,19 @@ bauen), Unreal (schwer, Desktop-only).
   eigene Linien darüber – aus den Kanten, die zwei Ländern gemeinsam sind. Standard: aus.
 - Höchster Punkt je Land: Wikidata (P610, Höhe P2044, Lage P625), 224 Länder; gleiche Berge (Mont Blanc)
   nur einmal. Wikipedia-Link deutsch, sonst englisch.
+- Eigenes Bedienfeld im linken Feld (ersetzt im Kartenmodus die normalen Abschnitte), alle Zusatz-Ebenen
+  standardmäßig aus, Einstellungen werden im Browser gemerkt.
+- Gemeinsamer Beschriftungs-Verteiler (`labels.ts`) für Länder, Städte, Meere, Flüsse, Orte …: wichtigste zuerst,
+  keine Überlappung, höchstens 320 Namen gleichzeitig.
+- Einfärben: Werte (Einwohner, Fläche, Dichte) in 6 Stufen, Gruppen (Kontinent, Hauptsprache laut GeoNames,
+  Währung) mit den 8 größten Gruppen, Bündnisse als feste Mitgliederlisten (Stand 2026, `colors.ts`).
+- Historische Grenzen (1815, 1880, 1900, 1914, 1920, 1938, 1945, 1960, 1994): historical-basemaps, ungefähr;
+  Namen ins Deutsche übersetzt (Liste im Skript), Farben gierig nach gemeinsamen Grenzpunkten.
+- Flüsse: Natural-Earth-Linien, Länge und deutscher Name über Wikidata (Suche nach englischem Namen, Fluss mit den
+  meisten Wikipedia-Sprachen). Anklicken: nächster Fluss im Umkreis von 8 Pixeln.
+- Erdbeben: USGS-Feed (7 Tage, ab Stärke 2,5), erst beim Einschalten geladen, alle 10 Minuten neu.
+- Sonnenzeiten mit astronomy-engine im Browser (Zeitzone der Stadt aus GeoNames), Wetter von Open-Meteo nur auf Wunsch.
+- „Meine Karte“: localStorage + Datei speichern/laden (JSON, Fotos verkleinert als JPEG eingebettet).
 - Höhe über dem Meer: GeoNames (gemessen, sonst Geländemodell SRTM/GTOPO30 am Ortspunkt).
 - Hauptstädte inkl. Regierungs-, Parlaments- und Gerichtssitze (Natural Earth, Rollen von Hand ergänzt).
 - Namen erscheinen ohne Überlappung (Hauptstädte zuerst, dann nach Einwohnern), höchstens 260 gleichzeitig.
@@ -143,6 +156,8 @@ immer Daten hat. JWST hat keine Bahndaten (steht am L2) → Näherung „1,5 Mio
 | M13 | 10-Minuten-Bilder für die letzten 6 h (Echtfarben) | ✅ |
 | M14 | 10-Minuten-Infrarot für Europa/Amerika (Nachtseite) | Idee |
 | M15 | Politische Karte: Länder, Hauptstädte, 43.000 Städte mit Rängen, Luftlinie messen | ✅ |
+| M16 | Politische Karte: Satellit, Einfärben/Bündnisse, historische Grenzen, Wasser, Orte, Steckbriefe, Suche, Vergleiche, Meine Karte | ✅ |
+| M17 | Quiz, Live-Schiffe/-Flugzeuge, Erdgeschichte u. v. m. | siehe [IDEEN.md](IDEEN.md) |
 
 ## 7. Offene Punkte
 

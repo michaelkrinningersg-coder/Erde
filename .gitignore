@@ -7,3 +7,4 @@ public/color/
 public/color-america/
 src-tauri/target/
 .cache/
+__pycache__/

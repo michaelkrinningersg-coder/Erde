@@ -310,6 +310,93 @@ def highest_points(feats, cache, use_wikidata):
     return known
 
 
+CONTINENTS_NE = {'Europe': 'Europa', 'Asia': 'Asien', 'Africa': 'Afrika', 'North America': 'Nordamerika',
+                 'South America': 'Südamerika', 'Oceania': 'Ozeanien', 'Antarctica': 'Antarktis',
+                 'Seven seas (open ocean)': 'Ozeane'}
+
+
+def country_facts(feats, cache, use_wikidata):
+    """Steckbrief-Daten je Land aus Wikidata: Fläche, Amtssprachen, Währung, Vorwahl, Kfz-Kennzeichen,
+    Fahrseite, tiefster Punkt (Name, Lage, Höhe, Wikipedia)."""
+    path = os.path.join(cache, 'wikidata_countries.json')
+    if os.path.exists(path):
+        return json.load(open(path, encoding='utf-8'))
+    if not use_wikidata:
+        return {}
+    ids = ' '.join(f"wd:{f['wikidata']}" for f in feats if f['wikidata'])
+    facts = defaultdict(dict)
+    qid = lambda v: v.rsplit('/', 1)[1]
+    # Fläche (normiert in m²): bevorzugter Wert, sonst größter normaler
+    areas = defaultdict(list)
+    for r in sparql('SELECT ?c ?a ?r WHERE { VALUES ?c {' + ids + '} ?c p:P2046 ?st . ?st psn:P2046/wikibase:quantityAmount ?a ; wikibase:rank ?r }'):
+        areas[qid(r['c']['value'])].append((r['r']['value'].endswith('PreferredRank'), float(r['a']['value'])))
+    for c, vals in areas.items():
+        pref = [a for p_, a in vals if p_]
+        facts[c]['area'] = round((max(pref) if pref else max(a for _, a in vals)) / 1e6)
+    for r in sparql('SELECT ?c ?tel ?kfz ?drive WHERE { VALUES ?c {' + ids + '} OPTIONAL { ?c wdt:P474 ?tel } OPTIONAL { ?c wdt:P395 ?kfz } OPTIONAL { ?c wdt:P1622 ?drive } }'):
+        f = facts[qid(r['c']['value'])]
+        if 'tel' in r:
+            f.setdefault('tel', r['tel']['value'])
+        if 'kfz' in r:
+            f.setdefault('kfz', r['kfz']['value'])
+        if 'drive' in r:
+            f.setdefault('drive', 'rechts' if qid(r['drive']['value']) == 'Q14565199' else 'links')
+    for prop, key in (('P37', 'lang'), ('P38', 'cur')):
+        for r in sparql('SELECT ?c ?l WHERE { VALUES ?c {' + ids + '} ?c wdt:' + prop + ' ?x . ?x rdfs:label ?l FILTER(lang(?l) = "de") }'):
+            lst = facts[qid(r['c']['value'])].setdefault(key, [])
+            if r['l']['value'] not in lst:
+                lst.append(r['l']['value'])
+    q = ('SELECT ?c ?lo ?loLabel ?coord ?elev ?a ?b WHERE { VALUES ?c {' + ids + '} ?c wdt:P1589 ?lo . ?lo wdt:P625 ?coord . ?lo wdt:P2044 ?elev . '
+         'FILTER NOT EXISTS { ?lo wdt:P31 ?t . VALUES ?t { wd:Q165 wd:Q9430 wd:Q1322134 wd:Q39594 wd:Q37901 wd:Q4022 wd:Q187223 } } '
+         'OPTIONAL { ?a schema:about ?lo; schema:isPartOf <https://de.wikipedia.org/> } '
+         'OPTIONAL { ?b schema:about ?lo; schema:isPartOf <https://en.wikipedia.org/> } '
+         'SERVICE wikibase:label { bd:serviceParam wikibase:language "de,en". } }')
+    for r in sparql(q):
+        c = qid(r['c']['value'])
+        try:
+            lon, lat = map(float, r['coord']['value'][6:-1].split())
+        except ValueError:
+            continue
+        elev = round(float(r['elev']['value']))
+        name = '' if re_qid(r['loLabel']['value']) else r['loLabel']['value']
+        wiki = (urllib.parse.unquote(r['a']['value'].rsplit('/wiki/', 1)[1]) if 'a' in r
+                else 'en:' + urllib.parse.unquote(r['b']['value'].rsplit('/wiki/', 1)[1]) if 'b' in r else '')
+        if 'lo' not in facts[c] or elev < facts[c]['lo'][3]:
+            facts[c]['lo'] = [name, round(lon, 5), round(lat, 5), elev, wiki]
+    json.dump(facts, open(path, 'w', encoding='utf-8'), ensure_ascii=False)
+    print(f"Länder-Steckbriefe: {len(facts)}, tiefste Punkte: {sum(1 for f in facts.values() if 'lo' in f)}", file=sys.stderr)
+    return facts
+
+
+def main_languages(feats, cache, use_wikidata):
+    """Hauptsprachen je Land aus GeoNames (Reihenfolge = Verbreitung), deutsche Namen über Wikidata (ISO 639-1)."""
+    info = {}
+    for line in open(fetch('countryinfo', cache), encoding='utf-8'):
+        if line.startswith('#') or not line.strip():
+            continue
+        c = line.rstrip('\n').split('\t')
+        info[c[0]] = [x.split('-')[0] for x in c[15].split(',') if x]
+    path = os.path.join(cache, 'wikidata_languages.json')
+    if os.path.exists(path):
+        names = json.load(open(path, encoding='utf-8'))
+    elif use_wikidata:
+        names = {}
+        for r in sparql('SELECT ?code ?l WHERE { ?x wdt:P218 ?code . ?x rdfs:label ?l FILTER(lang(?l) = "de") }'):
+            names.setdefault(r['code']['value'], r['l']['value'])
+        json.dump(names, open(path, 'w', encoding='utf-8'), ensure_ascii=False)
+    else:
+        names = {}
+    res = {}
+    for f in feats:
+        langs = []
+        for code in info.get(f['iso2'], []):
+            n = names.get(code)
+            if n and n not in langs:
+                langs.append(n)
+        res[f['iso2']] = langs[:3]
+    return res
+
+
 def re_qid(s):
     return len(s) > 1 and s[0] == 'Q' and s[1:].isdigit()
 
@@ -327,9 +414,20 @@ def build_countries(cache, use_wikidata=True):
             'minLabel': p['MIN_LABEL'],
             'pop': int(p['POP_EST'] or 0),
             'wikidata': p['WIKIDATAID'] or '',
+            'continent': CONTINENTS_NE.get(p['CONTINENT'], p['CONTINENT']),
             'polys': polygons(f['geometry']),
         })
     colors = color_countries(feats)
+    nb = neighbours(feats)
+    facts = country_facts(feats, cache, use_wikidata)
+    langs = main_languages(feats, cache, use_wikidata)
+    # Wikidata nennt für Neuendorf-Sachsenbande die Ortshöhe, nicht den tiefsten Punkt (−3,54 m)
+    if 'Q183' in facts and facts['Q183'].get('lo', [''])[0] == 'Neuendorf-Sachsenbande':
+        facts['Q183']['lo'][3] = -3.54
+    for f in feats:
+        x = facts.setdefault(f['wikidata'], {}) if f['wikidata'] else {}
+        if langs.get(f['iso2']):
+            x['lang'] = langs[f['iso2']]  # GeoNames: Hauptsprachen zuerst (Wikidata nennt teils nur Regionalsprachen)
     borders = border_lines(feats)
     peaks = highest_points(feats, cache, use_wikidata)
     print(f'Grenzlinien: {len(borders)}', file=sys.stderr)
@@ -342,8 +440,9 @@ def build_countries(cache, use_wikidata=True):
         'scale': Q,
         'countries': [
             {'n': f['name'], 'i': f['iso2'], 'c': c, 'l': f['label'], 'z': f['minLabel'], 'e': f['pop'], 'q': f['wikidata'],
-             'p': encode(f['polys'], FINE_TOL), 'g': encode(f['polys'], COARSE_TOL, 0.08), 'h': peaks.get(f['wikidata'])}
-            for f, c in zip(feats, colors)
+             'p': encode(f['polys'], FINE_TOL), 'g': encode(f['polys'], COARSE_TOL, 0.08), 'h': peaks.get(f['wikidata']),
+             'k': f['continent'], 'x': facts.get(f['wikidata'], {}), 'nb': sorted(nb[i])}
+            for i, (f, c) in enumerate(zip(feats, colors))
         ],
         'lakes': encode(lake_polys, FINE_TOL),
         'lakesCoarse': encode(lake_polys, COARSE_TOL, 0.3),
@@ -487,7 +586,7 @@ def build_cities(cache, country_names, use_wikidata):
         rows.append({
             'gn': r[0], 'name': r[1], 'lat': float(r[4]), 'lon': float(r[5]), 'cc': cc,
             'pop': int(r[14] or 0), 'cont': info.get(cc, {}).get('cont', ''),
-            'fcode': r[7], 'a1': r[10], 'a2': r[11],
+            'fcode': r[7], 'a1': r[10], 'a2': r[11], 'tz': r[17],
             # Höhe über dem Meer: gemessener Wert, sonst Geländemodell (SRTM/GTOPO30) am Ortspunkt
             'elev': int(r[15]) if r[15].lstrip('-').isdigit() else (int(r[16]) if r[16].lstrip('-').isdigit() and r[16] != '-9999' else None),
         })
@@ -541,21 +640,35 @@ def build_cities(cache, country_names, use_wikidata):
         ne = c.get('ne') or ne_by_gn.get(c['gn'])
         w = wiki.get(c['gn'], {})
         c['de'] = w.get('de') or (ne and ne.get('NAME_DE')) or c['name']
+        for prefix in ('Stadtgemeinde ', 'Stadt ', 'Gemeinde ', 'Kreisfreie Stadt '):
+            if c['de'].startswith(prefix) and len(c['de']) > len(prefix) + 2:
+                c['de'] = c['de'][len(prefix):]
         c['wiki'] = w.get('wiki', '')
         c['country'] = country_names.get(c['cc']) or info.get(c['cc'], {}).get('name', c['cc'])
 
     countries = sorted({c['cc'] for c in rows})
+    timezones = []
+    tz_pos = {}
+
+    def tz_index(tz):
+        if tz not in tz_pos:
+            tz_pos[tz] = len(timezones)
+            timezones.append(tz)
+        return tz_pos[tz]
+
     app = {
         'source': 'GeoNames (CC BY 4.0), Natural Earth, Wikidata',
         'continents': CONTINENTS,
         'countries': {cc: [country_names.get(cc) or info.get(cc, {}).get('name', cc), info.get(cc, {}).get('cont', ''), n_country[cc]] for cc in countries},
         'continentCount': dict(n_cont),
         'worldCount': n_world,
+        'timezones': timezones,
         # [Name, Land, Einwohner, Breite, Länge, Rang Land, Rang Kontinent, Rang Welt, Hauptstadt-Rolle, Wikipedia-Titel,
-        #  Höhe (m), Ballungsraum (UN 2025, 0 = unbekannt), Verwaltungsgebiet (0 = nicht korrigiert)]
+        #  Höhe (m), Ballungsraum (UN 2025, 0 = unbekannt), Verwaltungsgebiet (0 = nicht korrigiert),
+        #  Zeitzone (Index in timezones), Hauptstadt eines Bundeslands/einer Provinz (1/0)]
         'cities': [
             [c['de'], c['cc'], c['pop'], round(c['lat'], 3), round(c['lon'], 3), c.get('rc', 0), c.get('rk', 0), c.get('rw', 0), c.get('cap', ''), c['wiki'],
-             c['elev'], c.get('agglo', 0), c.get('admin_pop', 0)]
+             c['elev'], c.get('agglo', 0), c.get('admin_pop', 0), tz_index(c.get('tz', '')), 1 if c.get('fcode') == 'PPLA' else 0]
             for c in rows if (c['pop'] >= APP_MIN_POP_LOCAL.get(c['cc'], APP_MIN_POP) or c.get('cap')) and not c.get('part_of')
         ],
     }

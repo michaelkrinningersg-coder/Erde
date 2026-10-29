@@ -823,7 +823,7 @@ body.political-mode #political-bar {
 
 body.political-mode #timebar,
 body.political-mode #topright,
-body.political-mode #panel-body,
+body.political-mode #panel-body > :not(#political-panel),
 body.political-mode #mission-hud,
 body.political-mode .cesium-viewer-timelineContainer,
 body.political-mode .cesium-viewer-animationContainer {
@@ -986,4 +986,244 @@ button.active {
 
 #city-card .peak-ico {
   color: #b07a4f;
+}
+
+/* Bedienfeld der politischen Karte */
+#political-panel {
+  display: none;
+}
+
+body.political-mode #political-panel {
+  display: block;
+}
+
+#political-panel .search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 4px 4px;
+  color: var(--muted);
+}
+
+#political-panel .search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font: inherit;
+}
+
+#political-panel .search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 4px 6px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+#political-panel .search-hit {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+  padding: 6px 8px;
+}
+
+#political-panel .search-hit span {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+#political-panel select {
+  max-width: 100%;
+}
+
+#political-panel .field-row select {
+  flex: 1;
+  min-width: 0;
+}
+
+#political-panel .legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 2px 4px 6px;
+  font-size: 12px;
+}
+
+#political-panel .legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+#political-panel .legend .swatch {
+  display: inline-block;
+  width: 14px;
+  height: 10px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+}
+
+#political-panel .legend-info {
+  width: 100%;
+  color: var(--muted);
+}
+
+#political-panel .record-list {
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+#political-panel .record {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  gap: 6px;
+  text-align: left;
+  padding: 5px 6px;
+  font-size: 13px;
+}
+
+#political-panel .record .rank,
+#political-panel .record .rval {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+#political-panel .small,
+#city-card .small {
+  font-size: 12px;
+}
+
+#coord-readout {
+  position: absolute;
+  left: 12px;
+  bottom: 40px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  z-index: 10;
+  white-space: pre;
+}
+
+#city-card .flag {
+  float: right;
+  width: 72px;
+  margin: 4px 30px 6px 8px;
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+
+#city-card .flag.small {
+  float: none;
+  width: 22px;
+  margin: 0 6px 0 0;
+  vertical-align: -2px;
+}
+
+#city-card .kfz {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: #fff;
+  color: #111;
+  font-weight: 700;
+  border: 2px solid #111;
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+#city-card {
+  max-height: calc(100% - 140px);
+  overflow-y: auto;
+}
+
+#city-card .sun {
+  margin: 6px 0;
+  font-size: 14px;
+}
+
+#city-card .sun-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+#city-card .sun-head input {
+  font: inherit;
+  font-size: 13px;
+  padding: 2px 4px;
+  border-radius: 6px;
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+#city-card .weather {
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+#city-card .weather:empty {
+  display: none;
+}
+
+#city-card table.compare td,
+#city-card table.compare th {
+  padding: 3px 6px;
+}
+
+#city-card table.compare td.win {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+#city-card .own-ico {
+  color: #e8467c;
+}
+
+#city-card .own-photo {
+  max-width: 100%;
+  border-radius: 8px;
+  margin-top: 6px;
+}
+
+#city-card .field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 6px 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+#city-card .field input,
+#city-card .field textarea {
+  font: inherit;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+#city-card .visited-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+
+#city-card a {
+  color: var(--accent-2);
 }

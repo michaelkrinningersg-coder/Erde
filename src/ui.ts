@@ -9,48 +9,11 @@ import { LAUNCH_SITES, type RocketTarget } from './objects/rocket';
 import type { Rockets } from './objects/rocketControl';
 import type { Satellites } from './objects/satellites';
 import type { Sky } from './objects/sky';
-import type { PoliticalView } from './political';
+import { buildPoliticalPanel, type PoliticalView } from './political';
 import type { SolarSystemView } from './solar/solarSystem';
+import { btn, h, section, toggle, type Child } from './dom';
 import { hydrateIcons, icon, type IconName } from './svgIcons';
 import type { TimeControl } from './time';
-
-type Child = Node | string | null | undefined | false;
-
-function h<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  props: Partial<HTMLElementTagNameMap[K]> & { class?: string; dataset?: Record<string, string> } = {},
-  ...children: Child[]
-): HTMLElementTagNameMap[K] {
-  const el = document.createElement(tag);
-  const { class: cls, dataset, ...rest } = props;
-  if (cls) el.className = cls;
-  if (dataset) Object.assign(el.dataset, dataset);
-  Object.assign(el, rest);
-  for (const c of children) if (c !== null && c !== undefined && c !== false) el.append(c);
-  return el;
-}
-
-/** Knopf mit Symbol; Erklärung steht im Tooltip */
-function btn(ico: IconName, title: string, onClick: (e: MouseEvent) => void, cls = 'icon-btn', text?: string) {
-  const b = h('button', { class: cls, title }, icon(ico, 18), text ? h('span', { textContent: text }) : null);
-  b.addEventListener('click', (e) => {
-    e.preventDefault();
-    onClick(e);
-  });
-  return b;
-}
-
-/** Schalter mit Symbol und kurzer Beschriftung; Erklärung im Tooltip */
-function toggle(ico: IconName | null, label: string, tip: string, checked: boolean, onChange: (v: boolean) => void, extra?: Child) {
-  const input = h('input', { type: 'checkbox', checked });
-  input.addEventListener('change', () => onChange(input.checked));
-  const row = h('label', { class: 'row', title: tip }, input, ico ? icon(ico, 18) : null, h('span', { textContent: label }), extra);
-  return { row, input };
-}
-
-function section(ico: IconName, title: string, open: boolean, ...children: Child[]) {
-  return h('details', { open }, h('summary', {}, icon(ico, 20), h('span', { textContent: title })), h('div', { class: 'section' }, ...children));
-}
 
 /** Gruppe mit Haupt-Schalter und aufklappbarer Liste einzelner Objekte */
 function group(
@@ -320,6 +283,7 @@ export function buildUi(d: UiDeps) {
   const startSection = section('launch', 'Starten', false, h('div', { class: 'tabs' }, tabPlane, tabRocket), planeForm, rocketForm, starts);
 
   body.append(earth, skySection, satSection, view, startSection);
+  buildPoliticalPanel(political, body);
 
   // Panel ein-/ausklappen (auf dem Handy standardmäßig zu)
   const panel = document.getElementById('panel')!;
