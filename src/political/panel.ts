@@ -5,6 +5,7 @@ import { COLOR_MODES } from './colors';
 import { HISTORY_YEARS } from './data';
 import { fmt } from './geo';
 import { CITY_CLASSES, cityIcon, markerIcon } from './markers';
+import { QUIZ_LEVELS, QUIZ_REGIONS } from './quiz';
 import type { Options, PoliticalView, SearchHit } from './view';
 
 type BoolKey = { [K in keyof Options]: Options[K] extends boolean ? K : never }[keyof Options];
@@ -53,6 +54,28 @@ export function buildPoliticalPanel(view: PoliticalView, container: HTMLElement)
     if (e.key === 'Escape') results.classList.add('hidden');
   });
   root.append(h('div', { class: 'search' }, icon('target', 18), input), results);
+
+  // ── Quiz ──
+  const regionSel = h('select', { title: 'Welche Länder gefragt werden' }, ...QUIZ_REGIONS.map((r) => h('option', { value: r.id, textContent: r.name })));
+  regionSel.value = view.quizRegion;
+  regionSel.addEventListener('change', () => (view.quizRegion = regionSel.value));
+  const levelSel = h('select', { title: 'Schwierigkeit' }, ...QUIZ_LEVELS.map((l) => h('option', { value: l.id, textContent: l.name })));
+  levelSel.value = view.quizLevel;
+  levelSel.addEventListener('change', () => (view.quizLevel = levelSel.value));
+  const voice = toggle('play', 'Fragen vorlesen', 'Die Fragen werden vorgelesen – auch für Kinder, die noch nicht lesen können', view.quiz.voice, (v) => (view.quiz.voice = v));
+  const sound = toggle(null, 'Töne', 'Kurzer Ton bei richtig und falsch', view.quiz.sound, (v) => (view.quiz.sound = v));
+  const startBtn = h('button', { class: 'wide quiz-go', title: 'Quiz starten: Wo ist welches Land?' }, icon('stars', 20), 'Länder-Quiz starten');
+  startBtn.addEventListener('click', () => view.startQuiz());
+  const quizSection = section(
+    'stars',
+    'Quiz',
+    false,
+    h('div', { class: 'row wrap' }, regionSel),
+    h('div', { class: 'row wrap' }, levelSel),
+    voice.row,
+    sound.row,
+    startBtn,
+  );
 
   // ── Karte ──
   const baseSel = h('select', { title: 'Grundkarte' }, h('option', { value: 'map', textContent: 'Länderkarte' }), h('option', { value: 'sat', textContent: 'Satellitenbild' }));
@@ -239,7 +262,7 @@ export function buildPoliticalPanel(view: PoliticalView, container: HTMLElement)
   // ── Beim Anklicken ──
   const clickSection = section('target', 'Beim Anklicken', false, sw('weather', 'cloud', 'Wetter abrufen', 'Beim Anklicken einer Stadt das aktuelle Wetter laden (Open-Meteo)'));
 
-  root.append(mapSection, waterSection, linesSection, placesSection, recordSection, mySection, clickSection);
+  root.append(quizSection, mapSection, waterSection, linesSection, placesSection, recordSection, mySection, clickSection);
   container.append(root);
   view.onState = () => updaters.forEach((u) => u());
   updaters.forEach((u) => u());

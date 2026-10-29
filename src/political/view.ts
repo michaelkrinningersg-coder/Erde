@@ -50,6 +50,7 @@ import {
 import { LabelManager, rangeForZoom, type LabelItem } from './labels';
 import { CITY_CLASSES, cityClass, cityIcon, iconUrl, markerIcon, MarkerLayer, type MarkerItem } from './markers';
 import { MyMap, shrinkPhoto, type OwnPlace } from './mymap';
+import { CountryQuiz, type QuizCountry, type QuizHost } from './quiz';
 import { dayLength, fetchWeather, sunTimes, timeIn, todayIn } from './sunweather';
 import { CanvasLayer, COARSE_MAX_LEVEL, fillPolys, strokeLines, strokePolys, widthFor, type TileView } from './tiles';
 
@@ -178,7 +179,7 @@ const sqkm = (v: number) => `${fmt(v)} km²`;
  * Politische Karte: statisch (keine Zeit, keine Wolken), Länder in Nachbarfarben oder eingefärbt nach Werten/Bündnissen,
  * wahlweise Satellitenbild oder historische Grenzen; Städte, Wasser, besondere Orte; Steckbriefe, Suche, Messen, Vergleiche.
  */
-export class PoliticalView {
+export class PoliticalView implements QuizHost {
   active = false;
   onChange?: (active: boolean) => void;
   /** Bedienfeld aktualisieren (Legende, Zähler, Listen) */
@@ -204,6 +205,9 @@ export class PoliticalView {
   private disputed: { n: string; note: string; w: string; fine: Poly[]; bbox: BBox }[] = [];
   private history?: { year: number; countries: HistCountry[] };
   private highlight?: Country;
+  readonly quiz: CountryQuiz;
+  private quizPaint?: Map<number, string>;
+  private quizSaved?: { satellite: boolean; year: number };
 
   private readonly labels: LabelManager;
   private readonly points = new BillboardCollection();
@@ -217,6 +221,7 @@ export class PoliticalView {
   private readonly disputedLayer: CanvasLayer;
   private readonly graticuleLayer: CanvasLayer;
   private readonly visitedLayer: CanvasLayer;
+  private readonly quizLayer: CanvasLayer;
   private readonly overlay = new CustomDataSource('politik');
   private readonly lines = new CustomDataSource('politik-linien');
   private readonly compareSrc = new CustomDataSource('politik-vergleich');
@@ -265,6 +270,8 @@ export class PoliticalView {
     this.riverLayer = new CanvasLayer(layers, 2000, (t) => this.drawRivers(t));
     this.borderLayer = new CanvasLayer(layers, 2000, (t) => this.drawBorders(t));
     this.graticuleLayer = new CanvasLayer(layers, 2000, (t) => this.drawGraticule(t));
+    this.quizLayer = new CanvasLayer(layers, 2000, (t) => this.drawQuiz(t));
+    this.quiz = new CountryQuiz(this);
     for (const ds of [this.overlay, this.lines, this.compareSrc, this.pinSrc]) {
       ds.show = false;
       void viewer.dataSources.add(ds);
@@ -278,7 +285,7 @@ export class PoliticalView {
   }
 
   private get canvasLayers() {
-    return [this.base, this.visitedLayer, this.admin1Layer, this.disputedLayer, this.riverLayer, this.borderLayer, this.graticuleLayer];
+    return [this.base, this.visitedLayer, this.quizLayer, this.admin1Layer, this.disputedLayer, this.riverLayer, this.borderLayer, this.graticuleLayer];
   }
 
   toggle() {
@@ -314,6 +321,7 @@ export class PoliticalView {
 
   async exit() {
     if (!this.active) return;
+    if (this.quiz.active) this.quiz.stop();
     this.active = false;
     this.stopAudio();
     this.handler?.destroy();
@@ -721,6 +729,66 @@ export class PoliticalView {
     }
   }
 
+  private drawQuiz(t: TileView) {
+    if (!this.quizPaint?.size) return;
+    const coarse = t.level <= COARSE_MAX_LEVEL;
+    for (const [idx, color] of this.quizPaint) {
+      const ct = this.countries[idx];
+      if (!ct || !t.visible(ct.bbox)) continue;
+      fillPolys(t, coarse ? ct.coarse : ct.fine, color);
+      strokePolys(t, coarse ? ct.coarse : ct.fine, '#ffffff', widthFor(t.level, 2.2));
+    }
+  }
+
+  // ── Quiz (QuizHost) ───────────────────────────────────────────────────
+
+  quizCountries(): QuizCountry[] {
+    return this.countries.map((c) => ({ idx: c.idx, data: c.data, bbox: c.bbox }));
+  }
+
+  paint(colors: Map<number, string> | undefined) {
+    this.quizPaint = colors && colors.size ? new Map(colors) : undefined;
+    this.quizLayer.show = !!this.quizPaint;
+    if (this.quizLayer.layer) this.quizLayer.layer.alpha = 1;
+    this.quizLayer.redraw();
+    this.order();
+  }
+
+  blink(dim: boolean) {
+    if (this.quizLayer.layer) this.quizLayer.layer.alpha = dim ? 0.2 : 1;
+  }
+
+  flyToCountry(idx: number) {
+    const ct = this.countries[idx];
+    if (!ct) return;
+    this.viewer.camera.flyTo({
+      // nah genug, dass man das Land sieht, aber nicht zu weit draußen (große Länder wie Russland)
+      destination: Cartesian3.fromDegrees(ct.data.l[0], ct.data.l[1], Math.min(7e6, Math.max(heightForBox(ct.bbox, this.scale) * 2.2, 2.2e6))),
+      orientation: { heading: 0, pitch: -Math.PI / 2, roll: 0 },
+      duration: 1.8,
+    });
+  }
+
+  setQuizMode(on: boolean) {
+    this.closeCard();
+    this.setMeasuring(false);
+    if (on) {
+      this.quizSaved = { satellite: this.opt.satellite, year: this.opt.year };
+      if (this.opt.satellite) void this.set('satellite', false);
+      if (this.opt.year) void this.set('year', 0);
+    } else if (this.quizSaved) {
+      const s = this.quizSaved;
+      this.quizSaved = undefined;
+      if (s.satellite) void this.set('satellite', true);
+      if (s.year) void this.set('year', s.year);
+    }
+    // Länder- und Stadtnamen verraten die Antwort
+    this.labels.show('countries', !on && !this.opt.year);
+    this.labels.show('history', !on && !!this.opt.year);
+    this.labels.show('cities', !on);
+    document.body.classList.toggle('quiz-mode', on);
+  }
+
   private drawAdmin1(t: TileView) {
     if (!this.admin1) return;
     const sat = this.opt.satellite;
@@ -1093,6 +1161,11 @@ export class PoliticalView {
       return;
     }
 
+    if (this.quiz.active) {
+      const ct = carto ? this.countryAt(CesiumMath.toDegrees(carto.longitude) * this.scale, CesiumMath.toDegrees(carto.latitude) * this.scale) : undefined;
+      this.quiz.answer(ct?.idx, ct?.data.n);
+      return;
+    }
     const row = id?.city as CityRow | undefined;
     if (row) {
       if (this.measuring) this.addMeasurePoint({ pos: Cartographic.fromDegrees(row[4], row[3]), name: row[0] });
@@ -1820,6 +1893,14 @@ export class PoliticalView {
     hit.open?.();
   }
 
+  quizRegion = 'Europa';
+  quizLevel = 'leicht';
+
+  startQuiz() {
+    if (!this.active || !this.countries.length) return;
+    this.quiz.start(this.quizRegion, this.quizLevel);
+  }
+
   // ── Entfernung messen (Luftlinie auf der Erdkugel) ────────────────────
 
   setMeasuring(on: boolean) {
@@ -1925,7 +2006,12 @@ export class PoliticalView {
     close.title = 'Zurück zur echten Erde';
     close.append(icon('globe', 20));
     close.addEventListener('click', () => void this.exit());
-    this.bar.append(wrap, this.measureBtn, this.removeOutlineBtn, close, this.hint);
+    const quizBtn = document.createElement('button');
+    quizBtn.className = 'icon-btn quiz-start';
+    quizBtn.title = 'Länder-Quiz: Wo ist welches Land? (Einstellungen im Bedienfeld unter „Quiz“)';
+    quizBtn.append(icon('stars', 20), 'Quiz');
+    quizBtn.addEventListener('click', () => (this.quiz.active ? this.quiz.stop() : this.startQuiz()));
+    this.bar.append(wrap, this.measureBtn, quizBtn, this.removeOutlineBtn, close, this.hint);
 
     this.card.id = 'city-card';
     this.card.className = 'glass hidden';

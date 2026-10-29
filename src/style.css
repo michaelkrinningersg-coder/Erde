@@ -1373,3 +1373,155 @@ select.select-native {
   text-transform: uppercase;
   color: var(--muted);
 }
+
+/* ── Länder-Quiz ─────────────────────────────────────────────────── */
+#quiz-box {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 12;
+  width: min(460px, calc(100% - 24px));
+  padding: 14px 18px 12px;
+  text-align: center;
+  color: var(--text);
+  color-scheme: dark;
+}
+
+#quiz-box .quiz-progress {
+  font-size: 13px;
+  color: var(--muted);
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  align-items: center;
+}
+
+#quiz-box .quiz-score {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+#quiz-box .quiz-score svg {
+  width: 15px;
+  height: 15px;
+}
+
+#quiz-box .quiz-flag {
+  display: block;
+  height: 64px;
+  margin: 10px auto 6px;
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3), 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+
+#quiz-box .quiz-question {
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+#quiz-box .quiz-feedback {
+  min-height: 24px;
+  margin: 6px 0 10px;
+  font-size: 17px;
+  color: var(--muted);
+}
+
+#quiz-box .quiz-feedback.good {
+  color: #5fe08a;
+  font-weight: 700;
+}
+
+#quiz-box .quiz-feedback.bad {
+  color: #ff9b8f;
+  font-weight: 600;
+}
+
+#quiz-box .quiz-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+#quiz-box .quiz-actions button {
+  min-height: 44px;
+  font-size: 15px;
+}
+
+#quiz-box .quiz-stars {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+#quiz-box .quiz-stars span {
+  width: 44px;
+  height: 44px;
+  color: rgba(255, 255, 255, 0.18);
+}
+
+#quiz-box .quiz-stars span.on {
+  color: #ffd166;
+  animation: quiz-pop 0.5s ease-out both;
+}
+
+#quiz-box .quiz-stars span:nth-child(2) { animation-delay: 0.1s; }
+#quiz-box .quiz-stars span:nth-child(3) { animation-delay: 0.2s; }
+#quiz-box .quiz-stars span:nth-child(4) { animation-delay: 0.3s; }
+#quiz-box .quiz-stars span:nth-child(5) { animation-delay: 0.4s; }
+
+#quiz-box .quiz-burst {
+  position: absolute;
+  left: 50%;
+  top: 55%;
+  width: 22px;
+  height: 22px;
+  margin: -11px;
+  pointer-events: none;
+  animation: quiz-burst 1.2s ease-out forwards;
+}
+
+@keyframes quiz-burst {
+  0% { transform: translate(0, 0) scale(0.3) rotate(0deg); opacity: 1; }
+  100% { transform: translate(var(--dx), var(--dy)) scale(1.2) rotate(200deg); opacity: 0; }
+}
+
+@keyframes quiz-pop {
+  0% { transform: scale(0.2); }
+  70% { transform: scale(1.25); }
+  100% { transform: scale(1); }
+}
+
+#political-panel .quiz-go {
+  margin-top: 6px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #ffd166, #f7a440);
+  color: #1a1a1a;
+  border-color: transparent;
+}
+
+#political-bar .quiz-start {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+/* Während des Quiz: Steckbrief und Hinweise weg, Karte frei */
+body.quiz-mode #city-card {
+  display: none !important;
+}
+
+@media (max-width: 700px) {
+  #quiz-box .quiz-question {
+    font-size: 22px;
+  }
+
+  #quiz-box .quiz-flag {
+    height: 48px;
+  }
+}

@@ -4,7 +4,7 @@ Gesammelt aus den Ideenlisten (Stand 2026-10-29). Umgesetzte Punkte stehen in [K
 
 ## Politische Karte / Globus
 
-- [ ] **Länder-Quiz** für die Kinder: „Wo ist Italien?“ – Kind tippt (auswählbar und einschaltbar)
+- [x] **Länder-Quiz** für die Kinder: „Wo ist Italien?“ – Kind tippt (umgesetzt: vorgelesen, Gebiet und Schwierigkeit wählbar)
 - [ ] **Flaggen-Quiz**: Flagge wird gezeigt, Kind tippt das Land
 - [ ] **Hauptstadt-Quiz** mit Punktestand
 - [x] **Nationalhymne** auf Wunsch im Länder-Steckbrief abspielen (umgesetzt, Aufnahmen von Wikimedia Commons)

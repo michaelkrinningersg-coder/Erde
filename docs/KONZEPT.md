@@ -157,7 +157,8 @@ immer Daten hat. JWST hat keine Bahndaten (steht am L2) → Näherung „1,5 Mio
 | M14 | 10-Minuten-Infrarot für Europa/Amerika (Nachtseite) | Idee |
 | M15 | Politische Karte: Länder, Hauptstädte, 43.000 Städte mit Rängen, Luftlinie messen | ✅ |
 | M16 | Politische Karte: Satellit, Einfärben/Bündnisse, historische Grenzen, Wasser, Orte, Steckbriefe, Suche, Vergleiche, Meine Karte | ✅ |
-| M17 | Quiz, Live-Schiffe/-Flugzeuge, Erdgeschichte u. v. m. | siehe [IDEEN.md](IDEEN.md) |
+| M17 | Länder-Quiz für Kinder (Sprachausgabe, Gebiete, Schwierigkeit) | ✅ |
+| M18 | Flaggen-/Hauptstadt-Quiz, Live-Schiffe/-Flugzeuge, Erdgeschichte u. v. m. | siehe [IDEEN.md](IDEEN.md) |
 
 ## 7. Offene Punkte
 
