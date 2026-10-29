@@ -7,7 +7,7 @@ Gesammelt aus den Ideenlisten (Stand 2026-10-29). Umgesetzte Punkte stehen in [K
 - [ ] **Länder-Quiz** für die Kinder: „Wo ist Italien?“ – Kind tippt (auswählbar und einschaltbar)
 - [ ] **Flaggen-Quiz**: Flagge wird gezeigt, Kind tippt das Land
 - [ ] **Hauptstadt-Quiz** mit Punktestand
-- [ ] **Nationalhymne** auf Wunsch im Länder-Steckbrief abspielen
+- [x] **Nationalhymne** auf Wunsch im Länder-Steckbrief abspielen (umgesetzt, Aufnahmen von Wikimedia Commons)
 
 ## Sonstiges
 

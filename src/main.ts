@@ -10,6 +10,7 @@ import { PoliticalView } from './political';
 import { Flights } from './objects/flights';
 import { Rockets } from './objects/rocketControl';
 import { Satellites } from './objects/satellites';
+import { ScaleBar } from './scaleBar';
 import { Sky } from './objects/sky';
 import { SolarSystemView } from './solar/solarSystem';
 import { TimeControl } from './time';
@@ -39,6 +40,7 @@ async function main() {
   setEarliest(viewer.clock.startTime);
   time.onRangeChange = setEarliest;
   const political = new PoliticalView(viewer, layers.day);
+  new ScaleBar(viewer);
   viewer.clock.onTick.addEventListener((clock) => {
     if (political.active) return; // politische Karte ist statisch: keine Wolken-/Farbbilder nachladen
     // Echtfarbenbild (~2–3 km) beim nahen Reinzoomen ausblenden → darunter die scharfe 10-m-Karte

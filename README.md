@@ -9,7 +9,7 @@ Interaktive 3D-Erde im Browser – für mich und meine Kinder.
 - **Sonne, Mond, Planeten** (Marker in echter Richtung, vergrößert), James-Webb-Teleskop, **Flug zum Mond** mit echter Mondphase
 - **Sonnensystem-Ansicht** (kindgerecht zusammengerückt, Planeten in echter Richtung, anklickbar, Zeitraffer bis 1 Monat/s) – per Knopf oder einfach ganz weit rauszoomen
 - **Zuhause-Knopf** 🏠: Ort einmal festlegen (Standort, Stadt oder Bildmitte), gespeichert nur im Browser
-- **Immer eingenordet**: Ziehen dreht, Mausrad zoomt; Kompass-Knopf zum Einnorden; Doppelklick fliegt hin
+- **Immer eingenordet**: Ziehen dreht, Mausrad zoomt; Kompass-Knopf zum Einnorden; Doppelklick fliegt hin; **Maßstab** beim Heranzoomen
 - **Flugzeug-Simulation** zwischen 24 Städten (z. B. Frankfurt ⇄ New York)
 - **Rakete zur ISS/Tiangong** von echten Startplätzen: Startfenster, Stufentrennung, Parkbahn, Andocken, nach 2 h Rückflug mit glühendem Wiedereintritt und Fallschirmen
 - **3D-Modelle** (per Blender-Skript gebaut): ISS, Tiangong, Hubble, James Webb, Chandra, XMM-Newton, Swift, Fermi, NuSTAR, Rakete mit Stufen und Kapsel
@@ -19,7 +19,7 @@ Interaktive 3D-Erde im Browser – für mich und meine Kinder.
   - Hauptstädte (◉) und Regierungssitze (▣), **43.000 Städte** mit eigenem Zeichen je Größenklasse und Größenregler, **Maßstab** beim Heranzoomen, Bundesländer/Provinzen, umstrittene Gebiete, Nachbarländer
   - **Wasser**: Meere, Seen, Flüsse (anklickbar mit Länge), tiefste Punkte · **Linien**: Äquator, Wende-/Polarkreise, Datumsgrenze, Gradnetz
   - **Orte**: höchste Berge, Weltwunder, Bauwerke, UNESCO-Welterbe, Vulkane, Erdbeben live, Nationalparks, Wüsten, Gebirge & Seven Summits, Wasserfälle, Pole & Extrempunkte, Flughäfen, Häfen & Kanäle; **Rekorde**-Listen (Inseln, Halbinseln, Kaps)
-  - **Steckbriefe** mit Flagge, Einwohnern, Fläche, Sprache, Währung, Vorwahl, Kfz-Zeichen, Fahrseite, Bündnissen; Städte mit Rängen, Höhe, Ortszeit, Sonnenauf-/-untergang (Datum wählbar) und auf Wunsch Wetter
+  - **Steckbriefe** mit Flagge, Einwohnern, Fläche, Sprache, Währung, Vorwahl, Kfz-Zeichen, Fahrseite, Bündnissen und **Nationalhymne zum Abspielen**; Städte mit Rängen, Höhe, Ortszeit, Sonnenauf-/-untergang (Datum wählbar) und auf Wunsch Wetter
   - **Suche**, **Luftlinie messen**, **zwei Länder vergleichen**, **Größenvergleich** (Länderumriss in echter Größe verschieben)
   - **Meine Karte**: eigene Orte mit Notiz und Foto, besuchte Länder – im Browser gespeichert, als Datei sicherbar
   - alle Zusatz-Ebenen standardmäßig aus
@@ -99,5 +99,5 @@ Datei klein (kein Electron). Wolken- und Bahndaten holt das Programm von der Git
 - Meere, Seen, Flüsse, Bundesländer, umstrittene Gebiete, Landschaften, Häfen: Natural Earth (Public Domain)
 - Historische Grenzen: [historical-basemaps](https://github.com/aourednik/historical-basemaps) von A. Ourednik (GPL-3.0)
 - Vulkane: Smithsonian Institution, Global Volcanism Program · Erdbeben: USGS (live) · Wetter: [Open-Meteo](https://open-meteo.com) (CC BY 4.0)
-- Flughäfen: [OurAirports](https://ourairports.com) (Public Domain) · Flaggen: [flag-icons](https://github.com/lipis/flag-icons) (MIT)
+- Flughäfen: [OurAirports](https://ourairports.com) (Public Domain) · Flaggen: [flag-icons](https://github.com/lipis/flag-icons) (MIT) · Nationalhymnen: Aufnahmen auf [Wikimedia Commons](https://commons.wikimedia.org) (meist gemeinfrei), werden erst beim Abspielen geladen
 - 3D-Globus: [CesiumJS](https://cesium.com/platform/cesiumjs/) (Apache 2.0), Sonnensystem: [three.js](https://threejs.org) (MIT)

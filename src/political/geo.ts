@@ -15,6 +15,8 @@ export interface CountryFacts {
   lang?: string[];
   cur?: string[];
   lo?: PointInfo;
+  /** Nationalhymne: Name, MP3, Ogg (Wikimedia Commons), Wikipedia */
+  anthem?: [string, string, string, string];
 }
 
 export interface CountryData {

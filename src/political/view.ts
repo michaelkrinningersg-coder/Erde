@@ -236,8 +236,6 @@ export class PoliticalView {
   private readonly measureBtn = document.createElement('button');
   private readonly hint = document.createElement('span');
   private readonly coords = document.createElement('div');
-  private readonly scaleBar = document.createElement('div');
-  private lastScale = 0;
 
   constructor(
     private readonly viewer: Viewer,
@@ -277,40 +275,6 @@ export class PoliticalView {
       this.onState?.();
     };
     this.buildDom();
-    viewer.scene.postRender.addEventListener(() => this.updateScaleBar());
-  }
-
-  /** Maßstab unten rechts: erscheint beim Heranzoomen (Länderkarte und Satellitenbild) */
-  private updateScaleBar() {
-    if (!this.active) return;
-    const now = performance.now();
-    if (now - this.lastScale < 200) return;
-    this.lastScale = now;
-    const scene = this.viewer.scene;
-    const w = scene.canvas.clientWidth;
-    const h = scene.canvas.clientHeight;
-    const pick = (x: number) => {
-      const ray = this.viewer.camera.getPickRay(new Cartesian2(x, h - 70));
-      const p = ray && scene.globe.pick(ray, scene);
-      return p ? Cartographic.fromCartesian(p) : undefined;
-    };
-    const a = pick(w / 2 - 50);
-    const b = pick(w / 2 + 50);
-    if (!a || !b || this.viewer.camera.positionCartographic.height > 7e6) {
-      this.scaleBar.classList.add('hidden');
-      return;
-    }
-    const mpp = new EllipsoidGeodesic(a, b, Ellipsoid.WGS84).surfaceDistance / 100;
-    // runde Länge (1, 2, 5 × 10ⁿ), höchstens 130 Pixel breit
-    const max = mpp * 130;
-    const pow = Math.pow(10, Math.floor(Math.log10(max)));
-    const nice = [5, 2, 1].map((f) => f * pow).find((v) => v <= max) ?? pow;
-    const px = nice / mpp;
-    const label = nice >= 1000 ? `${fmt(nice / 1000)} km` : `${fmt(nice)} m`;
-    const bar = this.scaleBar.firstElementChild as HTMLElement;
-    bar.style.width = `${px.toFixed(0)}px`;
-    (this.scaleBar.lastElementChild as HTMLElement).textContent = label;
-    this.scaleBar.classList.remove('hidden');
   }
 
   private get canvasLayers() {
@@ -351,6 +315,7 @@ export class PoliticalView {
   async exit() {
     if (!this.active) return;
     this.active = false;
+    this.stopAudio();
     this.handler?.destroy();
     this.handler = undefined;
     for (const l of this.canvasLayers) l.show = false;
@@ -363,7 +328,6 @@ export class PoliticalView {
     this.dragOutline = undefined;
     this.card.classList.add('hidden');
     this.coords.classList.add('hidden');
-    this.scaleBar.classList.add('hidden');
     this.saved?.();
     this.saved = undefined;
     document.body.classList.remove('political-mode');
@@ -1482,6 +1446,7 @@ export class PoliticalView {
       row('Tiefster Punkt', point(x.lo)),
       row(`Nachbarländer (${nb.length})`, nb.length ? nb.map(escapeHtml).join(', ') : c.k === 'Ozeane' ? '' : 'keine – nur Meer'),
       row('Mitglied in', member.join(', ')),
+      x.anthem ? row('Nationalhymne', '<span class="anthem-slot"></span>') : '',
     ].join('');
     const flag = c.i ? `<img class="flag" src="./flags/${c.i.toLowerCase()}.svg" alt="Flagge" onerror="this.remove()">` : '';
     const link = c.q ? `https://www.wikidata.org/wiki/Special:GoToLinkedPage/dewiki/${c.q}` : wikiLink('', c.n);
@@ -1494,6 +1459,73 @@ export class PoliticalView {
       this.cardButton('expand', 'Größe', 'Umriss verschieben und die echte Größe vergleichen (Klick legt ihn ab)', () => this.startSizeCompare(ct)),
       ...(this.opt.visited ? [this.visitedToggle(c.n)] : []),
     ]);
+    if (x.anthem) this.anthemPlayer(this.card.querySelector<HTMLElement>('.anthem-slot')!, x.anthem);
+  }
+
+  private audio?: HTMLAudioElement;
+
+  /** Nationalhymne abspielen (Aufnahme von Wikimedia Commons, erst beim Klick geladen) */
+  private anthemPlayer(slot: HTMLElement, [name, mp3, ogg, wiki]: [string, string, string, string]) {
+    const b = document.createElement('button');
+    b.className = 'icon-btn anthem-btn';
+    b.title = 'Nationalhymne abspielen';
+    const label = document.createElement('span');
+    const setPlaying = (on: boolean) => {
+      b.replaceChildren(icon(on ? 'pause' : 'play', 16), label);
+      label.textContent = on ? 'Anhalten' : 'Abspielen';
+      b.classList.toggle('active', on);
+    };
+    setPlaying(false);
+    let failed = false;
+    const fail = () => {
+      failed = true;
+      label.textContent = 'bei Wikimedia anhören';
+    };
+    b.addEventListener('click', () => {
+      // Rückfall: Aufnahme direkt bei Wikimedia öffnen (Browser spielt sie selbst ab)
+      if (failed) {
+        window.open(ogg, '_blank', 'noopener');
+        return;
+      }
+      if (this.audio && !this.audio.paused) {
+        this.audio.pause();
+        setPlaying(false);
+        return;
+      }
+      if (!this.audio || this.audio.dataset.src !== mp3) {
+        this.stopAudio();
+        const a = document.createElement('audio');
+        a.dataset.src = mp3;
+        a.preload = 'auto';
+        for (const [src, type] of [
+          [mp3, 'audio/mpeg'],
+          [ogg, 'audio/ogg'],
+        ]) {
+          const s = document.createElement('source');
+          s.src = src;
+          s.type = type;
+          a.append(s);
+        }
+        a.addEventListener('ended', () => setPlaying(false));
+        a.addEventListener('error', fail, true);
+        this.audio = a;
+      }
+      void this.audio.play().then(
+        () => setPlaying(true),
+        fail,
+      );
+    });
+    const title = document.createElement('a');
+    title.href = wikiLink(wiki, name);
+    title.target = '_blank';
+    title.rel = 'noopener';
+    title.textContent = name || 'Wikipedia';
+    slot.append(title, document.createElement('br'), b);
+  }
+
+  private stopAudio() {
+    this.audio?.pause();
+    this.audio = undefined;
   }
 
   private visitedToggle(name: string) {
@@ -1591,6 +1623,7 @@ export class PoliticalView {
   }
 
   private openCard(html: string, link: string, from?: MeasurePoint, linkText?: string, extra: HTMLElement[] = []) {
+    this.stopAudio();
     const body = this.card.querySelector('.card-body')!;
     body.innerHTML = html;
     const actions = document.createElement('div');
@@ -1619,6 +1652,7 @@ export class PoliticalView {
   }
 
   closeCard() {
+    this.stopAudio();
     this.card.classList.add('hidden');
   }
 
@@ -1906,11 +1940,7 @@ export class PoliticalView {
 
     this.coords.id = 'coord-readout';
     this.coords.className = 'glass hidden';
-    this.scaleBar.id = 'scale-bar';
-    this.scaleBar.className = 'glass hidden';
-    this.scaleBar.title = 'Maßstab';
-    this.scaleBar.append(document.createElement('i'), document.createElement('span'));
-    document.body.append(this.bar, this.card, this.coords, this.scaleBar);
+    document.body.append(this.bar, this.card, this.coords);
   }
 }
 

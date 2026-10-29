@@ -14,6 +14,7 @@ Ausgabe:
 Aufruf:  python3 scripts/build_political.py [--cache VERZEICHNIS] [--no-wikidata]
 """
 import argparse
+import hashlib
 import csv
 import io
 import json
@@ -368,6 +369,38 @@ def country_facts(feats, cache, use_wikidata):
     return facts
 
 
+def anthems(feats, cache, use_wikidata):
+    """Nationalhymne je Land (Wikidata P85) mit Aufnahme von Wikimedia Commons (P51): [Name, MP3, Ogg, Wikipedia]."""
+    path = os.path.join(cache, 'wikidata_anthems.json')
+    if os.path.exists(path):
+        return json.load(open(path, encoding='utf-8'))
+    if not use_wikidata:
+        return {}
+    ids = ' '.join(f"wd:{f['wikidata']}" for f in feats if f['wikidata'])
+    rows = sparql('SELECT ?c ?a ?aLabel ?audio ?w ?we WHERE { VALUES ?c {' + ids + '} ?c wdt:P85 ?a . ?a wdt:P51 ?audio . '
+                  'OPTIONAL { ?w schema:about ?a; schema:isPartOf <https://de.wikipedia.org/> } '
+                  'OPTIONAL { ?we schema:about ?a; schema:isPartOf <https://en.wikipedia.org/> } '
+                  'SERVICE wikibase:label { bd:serviceParam wikibase:language "de,en". } }')
+    res = {}
+    for r in rows:
+        c = r['c']['value'].rsplit('/', 1)[1]
+        if c in res:
+            continue
+        name = urllib.parse.unquote(r['audio']['value'].rsplit('/', 1)[1]).replace(' ', '_')
+        h = hashlib.md5(name.encode()).hexdigest()
+        base = 'https://upload.wikimedia.org/wikipedia/commons'
+        ogg = f'{base}/{h[0]}/{h[:2]}/{urllib.parse.quote(name)}'
+        # Commons wandelt Ogg/FLAC/WAV zusätzlich in MP3 um (für Safari)
+        mp3 = ogg if name.lower().endswith('.mp3') else f'{base}/transcoded/{h[0]}/{h[:2]}/{urllib.parse.quote(name)}/{urllib.parse.quote(name)}.mp3'
+        wiki = (urllib.parse.unquote(r['w']['value'].rsplit('/wiki/', 1)[1]) if 'w' in r
+                else 'en:' + urllib.parse.unquote(r['we']['value'].rsplit('/wiki/', 1)[1]) if 'we' in r else '')
+        label = r['aLabel']['value']
+        res[c] = ['' if re_qid(label) else label, mp3, ogg, wiki]
+    json.dump(res, open(path, 'w', encoding='utf-8'), ensure_ascii=False)
+    print(f'Nationalhymnen mit Aufnahme: {len(res)}', file=sys.stderr)
+    return res
+
+
 def main_languages(feats, cache, use_wikidata):
     """Hauptsprachen je Land aus GeoNames (Reihenfolge = Verbreitung), deutsche Namen über Wikidata (ISO 639-1)."""
     info = {}
@@ -421,6 +454,10 @@ def build_countries(cache, use_wikidata=True):
     nb = neighbours(feats)
     facts = country_facts(feats, cache, use_wikidata)
     langs = main_languages(feats, cache, use_wikidata)
+    hymns = anthems(feats, cache, use_wikidata)
+    for f in feats:
+        if f['wikidata'] in hymns:
+            facts.setdefault(f['wikidata'], {})['anthem'] = hymns[f['wikidata']]
     # Wikidata nennt für Neuendorf-Sachsenbande die Ortshöhe, nicht den tiefsten Punkt (−3,54 m)
     if 'Q183' in facts and facts['Q183'].get('lo', [''])[0] == 'Neuendorf-Sachsenbande':
         facts['Q183']['lo'][3] = -3.54
