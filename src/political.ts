@@ -31,7 +31,8 @@ import { icon } from './svgIcons';
 
 // ── Daten (scripts/build_political.py) ──────────────────────────────────────
 
-type Ring = [number, number][];
+/** Ring als Differenzen: [x0, y0, dx1, dy1, …] in 1/scale Grad */
+type EncodedRing = number[];
 interface CountryData {
   n: string; // Name
   i: string; // ISO-Code
@@ -40,15 +41,20 @@ interface CountryData {
   z: number; // Zoomstufe, ab der Natural Earth den Namen zeigt
   e: number; // Einwohner (Schätzung)
   q: string; // Wikidata
-  p: Ring[][]; // Polygone (Außenring + Löcher), 1/100 Grad
+  p: EncodedRing[][]; // genaue Polygone (Außenring + Löcher), Natural Earth 1:10 Mio.
+  g: EncodedRing[][]; // grobe Polygone für den Blick auf die ganze Erde
 }
 interface CountriesFile {
   scale: number;
   countries: CountryData[];
-  lakes: Ring[][];
+  lakes: EncodedRing[][];
+  lakesCoarse: EncodedRing[][];
 }
-/** [Name, Land, Einwohner, Breite, Länge, Rang Land, Rang Kontinent, Rang Welt, Hauptstadt-Rolle, Wikipedia-Titel] */
-type CityRow = [string, string, number, number, number, number, number, number, string, string];
+/**
+ * [Name, Land, Einwohner, Breite, Länge, Rang Land, Rang Kontinent, Rang Welt, Hauptstadt-Rolle, Wikipedia-Titel,
+ *  Höhe in m (null = unbekannt), Ballungsraum UN 2025 (0 = unbekannt), Verwaltungsgebiet (0 = Zahl nicht korrigiert)]
+ */
+type CityRow = [string, string, number, number, number, number, number, number, string, string, number | null, number, number];
 interface CitiesFile {
   continents: Record<string, string>;
   countries: Record<string, [string, string, number]>;
@@ -57,9 +63,19 @@ interface CitiesFile {
   cities: CityRow[];
 }
 
-interface Country extends CountryData {
+type BBox = [number, number, number, number]; // W S O N in 1/scale Grad
+/** Ein Polygon (Außenring + Löcher) mit fertigem Zeichenpfad */
+interface Poly {
+  rings: Int32Array[]; // x, y abwechselnd
   path: Path2D;
-  bbox: [number, number, number, number]; // W S O N in 1/100 Grad
+  bbox: BBox;
+}
+
+interface Country {
+  data: CountryData;
+  fine: Poly[];
+  coarse: Poly[];
+  bbox: BBox;
 }
 
 interface City {
@@ -93,6 +109,9 @@ const CITY_FONT = 12;
 
 const fmt = (v: number) => v.toLocaleString('de-DE');
 
+/** Bis zu dieser Kachelstufe reichen die groben Grenzen (Stufe 3 ≈ 0,04° pro Pixel) */
+const COARSE_MAX_LEVEL = 3;
+
 /** Zeichnet die Länderkarte kachelweise auf Canvas (scharf in jeder Zoomstufe). */
 class PoliticalImagery {
   readonly tilingScheme = new GeographicTilingScheme();
@@ -100,7 +119,7 @@ class PoliticalImagery {
   readonly tileWidth = 512;
   readonly tileHeight = 512;
   readonly minimumLevel = 0;
-  readonly maximumLevel = 16;
+  readonly maximumLevel = 17;
   readonly tileDiscardPolicy = undefined;
   readonly errorEvent = new Event();
   readonly hasAlphaChannel = false;
@@ -109,7 +128,8 @@ class PoliticalImagery {
 
   constructor(
     private readonly countries: Country[],
-    private readonly lakes: { path: Path2D; bbox: [number, number, number, number] }[],
+    private readonly lakes: Poly[],
+    private readonly lakesCoarse: Poly[],
     private readonly scale: number,
   ) {}
 
@@ -131,54 +151,82 @@ class PoliticalImagery {
     const g = c.getContext('2d')!;
     g.fillStyle = WATER;
     g.fillRect(0, 0, c.width, c.height);
-    // Koordinaten in 1/100 Grad, y = −Breite
+    // Koordinaten in 1/scale Grad, y = −Breite
     const k = c.width / (e - w);
     g.setTransform(k, 0, 0, k, -w * k, n * k);
-    const pad = 2 / k;
-    const visible = <T extends { bbox: [number, number, number, number] }>(o: T) =>
-      o.bbox[0] <= e + pad && o.bbox[2] >= w - pad && o.bbox[1] <= n + pad && o.bbox[3] >= s - pad;
-    const shown = this.countries.filter(visible);
-    for (const ct of shown) {
-      g.fillStyle = PALETTE[ct.c % PALETTE.length];
-      g.fill(ct.path, 'evenodd');
+    const pad = 3 / k;
+    const visible = (b: BBox) => b[0] <= e + pad && b[2] >= w - pad && b[1] <= n + pad && b[3] >= s - pad;
+    const coarse = level <= COARSE_MAX_LEVEL;
+    const shown: Poly[][] = [];
+    for (const ct of this.countries) {
+      if (!visible(ct.bbox)) continue;
+      const polys = (coarse ? ct.coarse : ct.fine).filter((p) => visible(p.bbox));
+      if (!polys.length) continue;
+      g.fillStyle = PALETTE[ct.data.c % PALETTE.length];
+      for (const p of polys) g.fill(p.path, 'evenodd');
+      shown.push(polys);
     }
     g.fillStyle = WATER;
-    for (const l of this.lakes) if (visible(l)) g.fill(l.path, 'evenodd');
+    for (const l of coarse ? this.lakesCoarse : this.lakes) if (visible(l.bbox)) g.fill(l.path, 'evenodd');
     g.strokeStyle = BORDER;
     g.lineJoin = 'round';
-    g.lineWidth = (level >= 5 ? 1.6 : 1.1) / k;
-    for (const ct of shown) g.stroke(ct.path);
+    g.lineWidth = (level >= 8 ? 2 : level >= 5 ? 1.6 : 1.1) / k;
+    for (const polys of shown) for (const p of polys) g.stroke(p.path);
     return Promise.resolve(c);
   }
 }
 
-function toPath(polys: Ring[][]) {
-  const path = new Path2D();
-  const bbox: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
-  for (const poly of polys) {
-    for (const ring of poly) {
-      ring.forEach(([x, y], i) => {
+/** Differenzen auspacken und Zeichenpfad bauen */
+function decode(polys: EncodedRing[][]): Poly[] {
+  return polys.map((poly) => {
+    const path = new Path2D();
+    const bbox: BBox = [Infinity, Infinity, -Infinity, -Infinity];
+    const rings = poly.map((enc) => {
+      const ring = new Int32Array(enc.length);
+      let x = 0;
+      let y = 0;
+      for (let i = 0; i < enc.length; i += 2) {
+        x += enc[i];
+        y += enc[i + 1];
+        ring[i] = x;
+        ring[i + 1] = y;
         if (i === 0) path.moveTo(x, -y);
         else path.lineTo(x, -y);
         if (x < bbox[0]) bbox[0] = x;
         if (y < bbox[1]) bbox[1] = y;
         if (x > bbox[2]) bbox[2] = x;
         if (y > bbox[3]) bbox[3] = y;
-      });
+      }
       path.closePath();
-    }
+      return ring;
+    });
+    return { rings, path, bbox };
+  });
+}
+
+function unionBox(polys: Poly[]): BBox {
+  const b: BBox = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const p of polys) {
+    b[0] = Math.min(b[0], p.bbox[0]);
+    b[1] = Math.min(b[1], p.bbox[1]);
+    b[2] = Math.max(b[2], p.bbox[2]);
+    b[3] = Math.max(b[3], p.bbox[3]);
   }
-  return { path, bbox };
+  return b;
 }
 
 /** Punkt-in-Polygon (gerade/ungerade über alle Ringe eines Polygons) */
-function inside(polys: Ring[][], x: number, y: number) {
+function inside(polys: Poly[], x: number, y: number) {
   for (const poly of polys) {
+    if (x < poly.bbox[0] || x > poly.bbox[2] || y < poly.bbox[1] || y > poly.bbox[3]) continue;
     let c = false;
-    for (const ring of poly) {
-      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-        const [xi, yi] = ring[i];
-        const [xj, yj] = ring[j];
+    for (const r of poly.rings) {
+      const n = r.length;
+      for (let i = 0, j = n - 2; i < n; j = i, i += 2) {
+        const xi = r[i];
+        const yi = r[i + 1];
+        const xj = r[j];
+        const yj = r[j + 1];
         if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c;
       }
     }
@@ -232,6 +280,7 @@ export class PoliticalView {
   private loaded?: Promise<void>;
   private layer?: ImageryLayer;
   private countries: Country[] = [];
+  private scale = 1;
   private cityData?: CitiesFile;
   private cities: City[] = [];
   private readonly points = new PointPrimitiveCollection();
@@ -368,14 +417,20 @@ export class PoliticalView {
       fetch('./data/political/countries.json').then((r) => r.json() as Promise<CountriesFile>),
       fetch('./data/political/cities.json').then((r) => r.json() as Promise<CitiesFile>),
     ]);
-    this.countries = cf.countries.map((c) => ({ ...c, ...toPath(c.p) }));
-    const lakes = cf.lakes.map((p) => toPath([p]));
-    const provider = new PoliticalImagery(this.countries, lakes, cf.scale);
+    this.scale = cf.scale;
+    this.countries = cf.countries.map((data) => {
+      const fine = decode(data.p);
+      const coarse = decode(data.g);
+      data.p = data.g = []; // Rohdaten nicht doppelt im Speicher halten
+      return { data, fine, coarse, bbox: unionBox(fine) };
+    });
+    const provider = new PoliticalImagery(this.countries, decode(cf.lakes), decode(cf.lakesCoarse), cf.scale);
     this.layer = new ImageryLayer(provider as unknown as ImageryProvider, { show: false });
     this.viewer.imageryLayers.add(this.layer);
 
     // Ländernamen: große Länder schon von weit weg, kleine erst beim Heranzoomen
-    for (const c of this.countries) {
+    for (const ct of this.countries) {
+      const c = ct.data;
       const far = 3.4e7 / Math.pow(2, Math.max(0, c.z - 1.7));
       const pos = Cartesian3.fromDegrees(c.l[0], c.l[1]);
       const label = this.countryLabels.add({
@@ -389,7 +444,7 @@ export class PoliticalView {
         horizontalOrigin: HorizontalOrigin.CENTER,
         verticalOrigin: VerticalOrigin.CENTER,
         distanceDisplayCondition: new DistanceDisplayCondition(0, far),
-        id: { country: c },
+        id: { country: ct },
       });
       this.countryLabelList.push({ label, pos, range: far });
     }
@@ -529,7 +584,7 @@ export class PoliticalView {
     if (!carto) return;
     const country = picked?.id?.country ?? this.countryAt(carto);
     if (this.measuring) {
-      this.addMeasurePoint({ pos: carto, name: row ? row[0] : country ? `Punkt in ${country.n}` : 'Punkt im Meer' });
+      this.addMeasurePoint({ pos: carto, name: row ? row[0] : country ? `Punkt in ${country.data.n}` : 'Punkt im Meer' });
       if (row) this.showCity(row);
       return;
     }
@@ -539,14 +594,14 @@ export class PoliticalView {
   }
 
   private countryAt(c: Cartographic) {
-    const x = CesiumMath.toDegrees(c.longitude) * 100;
-    const y = CesiumMath.toDegrees(c.latitude) * 100;
-    return this.countries.find((ct) => x >= ct.bbox[0] && x <= ct.bbox[2] && y >= ct.bbox[1] && y <= ct.bbox[3] && inside(ct.p, x, y));
+    const x = CesiumMath.toDegrees(c.longitude) * this.scale;
+    const y = CesiumMath.toDegrees(c.latitude) * this.scale;
+    return this.countries.find((ct) => x >= ct.bbox[0] && x <= ct.bbox[2] && y >= ct.bbox[1] && y <= ct.bbox[3] && inside(ct.fine, x, y));
   }
 
   private showCity(row: CityRow) {
     const d = this.cityData!;
-    const [name, cc, pop, , , rc, rk, rw, cap, wiki] = row;
+    const [name, cc, pop, , , rc, rk, rw, cap, wiki, elev, agglo, adminPop] = row;
     const [country, cont] = d.countries[cc] ?? [cc, ''];
     const contName = d.continents[cont] ?? '';
     const ranks = rw
@@ -563,14 +618,20 @@ export class PoliticalView {
     this.openCard(
       `<h3>${cap ? '<span class="cap-star">★</span> ' : ''}${name}</h3>
        <div class="sub">${cap ? `<b>${cap}</b> · ` : ''}${country}${contName ? ` · ${contName}` : ''}</div>
-       <div class="pop"><span class="big">${fmt(pop)}</span> Einwohner</div>
+       <div class="pop"><span class="big">${fmt(pop)}</span> Einwohner${adminPop ? ' <span class="muted">(Ballungsraum)</span>' : ''}</div>
+       <table>
+         ${elev !== null ? `<tr><th>Höhe</th><td><b>${fmt(Math.abs(elev))} m</b> ${elev < 0 ? 'unter' : 'über'} dem Meer</td></tr>` : ''}
+         ${agglo && !adminPop && agglo > pop * 1.15 ? `<tr><th>Großraum</th><td>ca. ${fmt(agglo)} <span class="muted">(UN 2025)</span></td></tr>` : ''}
+         ${adminPop ? `<tr><th>Verwaltungsgebiet</th><td>${fmt(adminPop)} <span class="muted">(Stadt mit Umland)</span></td></tr>` : ''}
+       </table>
        ${ranks}`,
       link,
       { pos: Cartographic.fromDegrees(row[4], row[3]), name },
     );
   }
 
-  private showCountry(c: Country) {
+  private showCountry(ct: Country) {
+    const c = ct.data;
     const d = this.cityData!;
     const caps = d.cities.filter((r) => r[1] === c.i && r[8]);
     const biggest = d.cities.find((r) => r[1] === c.i);

@@ -13,7 +13,7 @@ Interaktive 3D-Erde im Browser – für mich und meine Kinder.
 - **Flugzeug-Simulation** zwischen 24 Städten (z. B. Frankfurt ⇄ New York)
 - **Rakete zur ISS/Tiangong** von echten Startplätzen: Startfenster, Stufentrennung, Parkbahn, Andocken, nach 2 h Rückflug mit glühendem Wiedereintritt und Fallschirmen
 - **3D-Modelle** (per Blender-Skript gebaut): ISS, Tiangong, Hubble, James Webb, Chandra, XMM-Newton, Swift, Fermi, NuSTAR, Rakete mit Stufen und Kapsel
-- **Politische Karte** (Karten-Knopf oben): statisch, ohne Wolken und Zeit – Wasser blau, Länder in Farben, die sich von den Nachbarn unterscheiden, Ländernamen beim Heranzoomen, Hauptstädte (★, auch Regierungs-/Parlamentssitze), **43.000 Städte** (weltweit ab 10.000, Deutschland ab 5.000 Einwohnern) mit Regler für die Stadtgröße; Klick zeigt Einwohner, **Rang im Land, auf dem Kontinent und weltweit** und Wikipedia-Link; **Luftlinie messen** zwischen zwei Orten
+- **Politische Karte** (Karten-Knopf oben): statisch, ohne Wolken und Zeit – Wasser blau, Länder in Farben, die sich von den Nachbarn unterscheiden, Ländernamen beim Heranzoomen, Hauptstädte (★, auch Regierungs-/Parlamentssitze), **43.000 Städte** (weltweit ab 10.000, Deutschland ab 5.000 Einwohnern) mit Regler für die Stadtgröße; Grenzen im Maßstab 1:10 Mio.; Klick zeigt Einwohner, **Höhe über dem Meer**, **Rang im Land, auf dem Kontinent und weltweit** und Wikipedia-Link; **Luftlinie messen** zwischen zwei Orten
 - Jedes Objekt einzeln ein-/ausblendbar
 
 Konzept, Datenquellen und Fahrplan: [docs/KONZEPT.md](docs/KONZEPT.md)

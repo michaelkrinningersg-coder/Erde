@@ -2,7 +2,7 @@
 """Baut die Daten für die politische Ansicht.
 
 Quellen (werden heruntergeladen):
-  - Natural Earth 1:50 Mio. Länder + Seen, 1:10 Mio. Orte (Hauptstädte)  – Public Domain
+  - Natural Earth 1:10 Mio. Länder, Seen und Orte (Hauptstädte)  – Public Domain
   - GeoNames cities1000 (alle Orte ab 1.000 Einwohnern) + countryInfo  – CC BY 4.0
   - Wikidata (deutscher Name + Link zur deutschen Wikipedia, für Städte ab 50.000) – CC0
 
@@ -28,8 +28,8 @@ from collections import defaultdict
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NE = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/'
 SOURCES = {
-    'countries': NE + 'ne_50m_admin_0_countries.geojson',
-    'lakes': NE + 'ne_50m_lakes.geojson',
+    'countries': NE + 'ne_10m_admin_0_countries.geojson',
+    'lakes': NE + 'ne_10m_lakes.geojson',
     'places': NE + 'ne_10m_populated_places.geojson',
     'cities': 'https://download.geonames.org/export/dump/cities1000.zip',
     'countryinfo': 'https://download.geonames.org/export/dump/countryInfo.txt',
@@ -86,7 +86,9 @@ def fetch(name, cache):
 
 # ── Länder ────────────────────────────────────────────────────────────────
 
-Q = 100  # Koordinaten in 1/100 Grad (≈ 1 km) speichern
+Q = 2000  # Koordinaten in 1/2000 Grad (≈ 50 m) speichern
+FINE_TOL = 0.0012  # Vereinfachung der genauen Grenzen (Grad, ≈ 130 m) – für nahes Heranzoomen
+COARSE_TOL = 0.04  # grobe Grenzen (≈ 4 km) – für den Blick auf die ganze Erde
 
 
 def quantize_ring(ring):
@@ -105,6 +107,62 @@ def polygons(geom):
     res = []
     for poly in polys:
         rings = [r for r in (quantize_ring(r) for r in poly) if r]
+        if rings:
+            res.append(rings)
+    return res
+
+
+def simplify(ring, tol):
+    """Douglas-Peucker für einen geschlossenen Ring (quantisierte Punkte)."""
+    t = tol * Q
+    n = len(ring)
+    if n < 4:
+        return ring
+    # Ring am entferntesten Punkt vom Start teilen
+    x0, y0 = ring[0]
+    far = max(range(n), key=lambda i: (ring[i][0] - x0) ** 2 + (ring[i][1] - y0) ** 2)
+    keep = [False] * (n + 1)
+    keep[0] = keep[far] = keep[n] = True
+    pts = ring + [ring[0]]
+    stack = [(0, far), (far, n)]
+    while stack:
+        i, j = stack.pop()
+        if j <= i + 1:
+            continue
+        (ax, ay), (bx, by) = pts[i], pts[j]
+        dx, dy = bx - ax, by - ay
+        L = (dx * dx + dy * dy) ** 0.5
+        best, bi = -1.0, -1
+        for k in range(i + 1, j):
+            px, py = pts[k]
+            d = abs(dy * (px - ax) - dx * (py - ay)) / L if L else ((px - ax) ** 2 + (py - ay) ** 2) ** 0.5
+            if d > best:
+                best, bi = d, k
+        if best > t:
+            keep[bi] = True
+            stack += [(i, bi), (bi, j)]
+    out = [pts[k] for k in range(n) if keep[k]]
+    return out if len(out) >= 3 else None
+
+
+def encode(polys, tol, min_size=0):
+    """Polygone vereinfachen und als Differenzen speichern: [x0, y0, dx1, dy1, …] je Ring."""
+    res = []
+    for poly in polys:
+        outer = poly[0]
+        xs = [p[0] for p in outer]
+        ys = [p[1] for p in outer]
+        if max(xs) - min(xs) < min_size * Q and max(ys) - min(ys) < min_size * Q:
+            continue  # Inselchen, die in dieser Stufe unsichtbar wären
+        rings = []
+        for ring in poly:
+            r = simplify(ring, tol)
+            if not r:
+                continue
+            flat = [r[0][0], r[0][1]]
+            for (ax, ay), (bx, by) in zip(r, r[1:]):
+                flat += [bx - ax, by - ay]
+            rings.append(flat)
         if rings:
             res.append(rings)
     return res
@@ -162,15 +220,17 @@ def build_countries(cache):
     lakes = json.load(open(fetch('lakes', cache), encoding='utf-8'))
     lake_polys = []
     for f in lakes['features']:
-        if f['properties'].get('scalerank', 9) <= 4:  # nur größere Seen
+        if f['properties'].get('scalerank', 9) <= 7:  # Seen ab mittlerer Größe
             lake_polys += polygons(f['geometry'])
     return {
         'scale': Q,
         'countries': [
-            {'n': f['name'], 'i': f['iso2'], 'c': c, 'l': f['label'], 'z': f['minLabel'], 'e': f['pop'], 'q': f['wikidata'], 'p': f['polys']}
+            {'n': f['name'], 'i': f['iso2'], 'c': c, 'l': f['label'], 'z': f['minLabel'], 'e': f['pop'], 'q': f['wikidata'],
+             'p': encode(f['polys'], FINE_TOL), 'g': encode(f['polys'], COARSE_TOL, 0.08)}
             for f, c in zip(feats, colors)
         ],
-        'lakes': lake_polys,
+        'lakes': encode(lake_polys, FINE_TOL),
+        'lakesCoarse': encode(lake_polys, COARSE_TOL, 0.3),
     }, {f['iso2']: f['name'] for f in feats if f['iso2']}
 
 
@@ -212,6 +272,39 @@ def wikidata(geonames_ids, cache):
     return known
 
 
+def fix_populations(rows, ne_by_gn):
+    """GeoNames zählt teils das ganze Verwaltungsgebiet (v. a. China: Stadt mit Umland, z. B. Chongqing 22 Mio.).
+    - Liegt die Zahl deutlich über dem Ballungsraum laut UN-Prognose 2025 (Natural Earth), gilt der Ballungsraum.
+    - Stadtbezirke in China (Pudong, Haidian …) und New York (Brooklyn …) zählen nicht als eigene Städte."""
+    fixed = 0
+    for c in rows:
+        ne = ne_by_gn.get(c['gn'])
+        un = int((ne or {}).get('POP2025') or 0) * 1000
+        if un:
+            c['agglo'] = un
+            if c['pop'] > 1.5 * un:
+                c['admin_pop'], c['pop'] = c['pop'], un
+                fixed += 1
+    parents = defaultdict(list)
+    for c in rows:
+        if c['cc'] == 'CN' and c['fcode'] in ('PPLA', 'PPLC', 'PPLA2') and c['a2']:
+            parents[(c['a1'], c['a2'])].append(c)
+    nyc = next((c for c in rows if c['gn'] == '5128581'), None)
+    parts = 0
+    for c in rows:
+        if c['cc'] == 'CN' and c['fcode'] in ('PPLA3', 'PPLA4'):
+            for p in parents.get((c['a1'], c['a2']), []):
+                d2 = (p['lat'] - c['lat']) ** 2 + ((p['lon'] - c['lon']) * 0.85) ** 2
+                if p['pop'] >= 1_000_000 and p['pop'] > c['pop'] and d2 < 0.27 ** 2:  # ≈ 30 km um eine Millionenstadt
+                    c['part_of'] = p
+                    parts += 1
+                    break
+        elif nyc and c['cc'] == 'US' and c['a1'] == 'NY' and c['name'] in ('Brooklyn', 'Queens', 'The Bronx', 'Manhattan', 'Staten Island'):
+            c['part_of'] = nyc
+            parts += 1
+    print(f'Einwohner auf Ballungsraum korrigiert: {fixed}, Stadtbezirke: {parts}', file=sys.stderr)
+
+
 def build_cities(cache, country_names, use_wikidata):
     # Länder → Kontinent und englischer Name als Rückfall
     info = {}
@@ -240,6 +333,9 @@ def build_cities(cache, country_names, use_wikidata):
         rows.append({
             'gn': r[0], 'name': r[1], 'lat': float(r[4]), 'lon': float(r[5]), 'cc': cc,
             'pop': int(r[14] or 0), 'cont': info.get(cc, {}).get('cont', ''),
+            'fcode': r[7], 'a1': r[10], 'a2': r[11],
+            # Höhe über dem Meer: gemessener Wert, sonst Geländemodell (SRTM/GTOPO30) am Ortspunkt
+            'elev': int(r[15]) if r[15].lstrip('-').isdigit() else (int(r[16]) if r[16].lstrip('-').isdigit() and r[16] != '-9999' else None),
         })
 
     # Hauptstädte zuordnen: gleiche GeoNames-Nummer, sonst nächster Ort im selben Land
@@ -266,11 +362,12 @@ def build_cities(cache, country_names, use_wikidata):
         city['cap'] = CAPITAL_ROLES.get(p['NAME'], 'Hauptstadt')
         city.setdefault('ne', p)
 
+    fix_populations(rows, ne_by_gn)
     rows.sort(key=lambda c: -c['pop'])
     # Ränge unter allen Orten ab 1.000 Einwohnern (GeoNames)
     n_world, n_cont, n_country = 0, defaultdict(int), defaultdict(int)
     for c in rows:
-        if c.get('small'):
+        if c.get('small') or c.get('part_of'):
             continue
         n_world += 1
         n_cont[c['cont']] += 1
@@ -292,10 +389,12 @@ def build_cities(cache, country_names, use_wikidata):
         'countries': {cc: [country_names.get(cc) or info.get(cc, {}).get('name', cc), info.get(cc, {}).get('cont', ''), n_country[cc]] for cc in countries},
         'continentCount': dict(n_cont),
         'worldCount': n_world,
-        # [Name, Land, Einwohner, Breite, Länge, Rang Land, Rang Kontinent, Rang Welt, Hauptstadt-Rolle, Wikipedia-Titel]
+        # [Name, Land, Einwohner, Breite, Länge, Rang Land, Rang Kontinent, Rang Welt, Hauptstadt-Rolle, Wikipedia-Titel,
+        #  Höhe (m), Ballungsraum (UN 2025, 0 = unbekannt), Verwaltungsgebiet (0 = nicht korrigiert)]
         'cities': [
-            [c['de'], c['cc'], c['pop'], round(c['lat'], 3), round(c['lon'], 3), c.get('rc', 0), c.get('rk', 0), c.get('rw', 0), c.get('cap', ''), c['wiki']]
-            for c in rows if c['pop'] >= APP_MIN_POP_LOCAL.get(c['cc'], APP_MIN_POP) or c.get('cap')
+            [c['de'], c['cc'], c['pop'], round(c['lat'], 3), round(c['lon'], 3), c.get('rc', 0), c.get('rk', 0), c.get('rw', 0), c.get('cap', ''), c['wiki'],
+             c['elev'], c.get('agglo', 0), c.get('admin_pop', 0)]
+            for c in rows if (c['pop'] >= APP_MIN_POP_LOCAL.get(c['cc'], APP_MIN_POP) or c.get('cap')) and not c.get('part_of')
         ],
     }
     return app, rows
@@ -320,13 +419,16 @@ def main():
     with open(os.path.join(ROOT, 'data', 'staedte.csv'), 'w', encoding='utf-8', newline='') as f:
         w = csv.writer(f)
         w.writerow(['stadt', 'name_original', 'land_code', 'land', 'kontinent', 'einwohner', 'breite', 'laenge',
-                    'rang_land', 'rang_kontinent', 'rang_welt', 'hauptstadt', 'wikipedia', 'geonames_id'])
+                    'rang_land', 'rang_kontinent', 'rang_welt', 'hauptstadt', 'wikipedia', 'geonames_id',
+                    'hoehe_m', 'ballungsraum_un2025', 'einwohner_verwaltungsgebiet', 'stadtbezirk_von'])
         for c in rows:
             if c['pop'] < CSV_MIN_POP and not c.get('cap'):
                 continue
             w.writerow([c['de'], c['name'], c['cc'], c['country'], CONTINENTS.get(c['cont'], ''), c['pop'], round(c['lat'], 5), round(c['lon'], 5),
                         c.get('rc', ''), c.get('rk', ''), c.get('rw', ''), c.get('cap', ''),
-                        f"https://de.wikipedia.org/wiki/{c['wiki'].replace(' ', '_')}" if c['wiki'] else '', c['gn']])
+                        f"https://de.wikipedia.org/wiki/{c['wiki'].replace(' ', '_')}" if c['wiki'] else '', c['gn'],
+                        '' if c['elev'] is None else c['elev'], c.get('agglo') or '', c.get('admin_pop') or '',
+                        c['part_of']['de'] if c.get('part_of') else ''])
     print(f"App-Städte: {len(app['cities'])}, Orte gesamt (Rangliste): {len(rows)}", file=sys.stderr)
 
 

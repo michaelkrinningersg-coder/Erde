@@ -81,13 +81,19 @@ bauen), Unreal (schwer, Desktop-only).
 
 ### Politische Karte
 
-- Länder: Natural Earth 1:50 Mio. (Public Domain), Farben aus `MAPCOLOR9` – das Skript prüft gemeinsame
-  Grenzpunkte und färbt die wenigen Konflikte um (Ergebnis: keine Nachbarn mit gleicher Farbe).
-- Gezeichnet als Kachelbild direkt im Browser (Canvas) → scharfe Grenzen in jeder Zoomstufe, kein Server.
+- Länder und Seen: Natural Earth **1:10 Mio.** (Public Domain), in zwei Stufen: grob (≈ 4 km) für den Blick
+  auf die ganze Erde, genau (≈ 130 m, Koordinaten auf 50 m) beim Heranzoomen. Farben aus `MAPCOLOR9` – das
+  Skript prüft gemeinsame Grenzpunkte und färbt die wenigen Konflikte um (keine Nachbarn mit gleicher Farbe).
+- Gezeichnet als Kachelbild direkt im Browser (Canvas) → scharfe Linien in jeder Zoomstufe, kein Server.
+  Noch genauer ginge mit OpenStreetMap-Grenzen (mehrere 100 MB) – für diese Ansicht nicht nötig.
 - Städte: GeoNames `cities1000` (CC BY 4.0). In der Karte weltweit ab 10.000, in Deutschland ab 5.000
   Einwohnern (≈ 43.000 Orte); Ränge (Land/Kontinent/Welt) unter allen 162.000 Orten ab 1.000 Einwohnern.
   Datenbank `data/staedte.csv`: alle Orte ab 5.000 Einwohnern weltweit (≈ 64.000).
-- Hinweis: GeoNames zählt teils das Verwaltungsgebiet (z. B. chinesische Großstädte mit Umland).
+- Einwohner korrigiert: GeoNames zählt teils das Verwaltungsgebiet (v. a. China, z. B. Chongqing 22 Mio.).
+  Liegt die Zahl mehr als 1,5-fach über dem Ballungsraum laut UN-Prognose 2025 (aus Natural Earth), gilt der
+  Ballungsraum (49 Städte); die Verwaltungszahl steht im Steckbrief. Stadtbezirke (Pudong, Brooklyn …)
+  zählen nicht als eigene Städte. Kleinere chinesische Städte ohne UN-Zahl können noch zu hoch sein.
+- Höhe über dem Meer: GeoNames (gemessen, sonst Geländemodell SRTM/GTOPO30 am Ortspunkt).
 - Hauptstädte inkl. Regierungs-, Parlaments- und Gerichtssitze (Natural Earth, Rollen von Hand ergänzt).
 - Namen erscheinen ohne Überlappung (Hauptstädte zuerst, dann nach Einwohnern), höchstens 260 gleichzeitig.
 
