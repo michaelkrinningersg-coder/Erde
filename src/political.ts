@@ -339,8 +339,8 @@ function peakIcon() {
   return c;
 }
 
-/** Hauptstadt: klassisches Atlas-Zeichen – weißer Kreis mit dunkelrotem Ring und Punkt */
-function capitalIcon() {
+/** Hauptstadt (Kreis mit Punkt) oder Regierungs-/Parlaments-/Gerichtssitz (Quadrat mit Punkt) – Atlas-Zeichen */
+function capitalIcon(seat: boolean) {
   const s = 18;
   const c = document.createElement('canvas');
   c.width = c.height = s * 2;
@@ -348,7 +348,8 @@ function capitalIcon() {
   g.scale(2, 2);
   g.translate(s / 2, s / 2);
   g.beginPath();
-  g.arc(0, 0, 7, 0, Math.PI * 2);
+  if (seat) g.rect(-6.2, -6.2, 12.4, 12.4);
+  else g.arc(0, 0, 7, 0, Math.PI * 2);
   g.fillStyle = '#fff';
   g.fill();
   g.lineWidth = 2.4;
@@ -360,6 +361,9 @@ function capitalIcon() {
   g.fill();
   return c;
 }
+
+/** Hauptstadt im engeren Sinn (auch die Bundesstadt Bern) – alle anderen Rollen sind weitere Sitze */
+const isMainCapital = (role: string) => role.startsWith('Hauptstadt') || role === 'Bundesstadt';
 
 /** Link zum Wikipedia-Artikel („en:“ = nur auf Englisch vorhanden), sonst Suche */
 function wikiLink(title: string, search: string) {
@@ -582,7 +586,8 @@ export class PoliticalView {
 
     // Städte
     this.cityData = cities;
-    const star = capitalIcon();
+    const capImg = capitalIcon(false);
+    const seatImg = capitalIcon(true);
     for (const row of cities.cities) {
       const [, , pop, lat, lon, , , , cap] = row;
       const pos = Cartesian3.fromDegrees(lon, lat);
@@ -591,7 +596,7 @@ export class PoliticalView {
       if (capital) {
         city.star = this.stars.add({
           position: pos,
-          image: star,
+          image: isMainCapital(cap) ? capImg : seatImg,
           width: 16,
           height: 16,
           // ganz weit draußen klein, damit sich die Sterne nicht überdecken
@@ -816,7 +821,7 @@ export class PoliticalView {
       : '';
     const link = wikiLink(wiki, `${name} ${country}`);
     this.openCard(
-      `<h3>${cap ? '<span class="cap-mark"></span>' : ''}${name}</h3>
+      `<h3>${cap ? `<span class="cap-mark${isMainCapital(cap) ? '' : ' seat'}"></span>` : ''}${name}</h3>
        <div class="sub">${cap ? `<b>${cap}</b> · ` : ''}${country}${contName ? ` · ${contName}` : ''}</div>
        <div class="pop"><span class="big">${fmt(pop)}</span> Einwohner${adminPop ? ' <span class="muted">(Ballungsraum)</span>' : ''}</div>
        <table>
