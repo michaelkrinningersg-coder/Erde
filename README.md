@@ -3,7 +3,7 @@
 Interaktive 3D-Erde im Browser – für mich und meine Kinder.
 
 - **Echte Wolken** (EUMETSAT-Infrarot-Weltmosaik, alle 3 h, Tag und Nacht), bis zu **30 Tage zurückspulen** (Standard 7)
-- **Echtfarben-Satellitenbilder** für Europa & Afrika (Meteosat-12) und Amerika (GOES-19) auf der Tagseite – mit weichen Übergängen; die letzten 6 Stunden im 10-Minuten-Takt (beim Start direkt geladen), davor stündlich aus dem Archiv
+- **Echtfarben-Satellitenbilder** für Europa & Afrika (Meteosat-12) und Amerika (GOES-19) auf der Tagseite – mit weichen Übergängen; die letzten 6 Stunden im 10-Minuten-Takt (beim Start direkt geladen); ein stündlich gefülltes Archiv gibt es derzeit nicht mehr
 - **Tag/Nacht** mit echtem Sonnenstand, **Stadtlichter** auf der Nachtseite – sichtbar, wo der Himmel klar ist
 - **Satelliten** an ihrer echten Position: ISS, Tiangong, Hubble & weitere Weltraumteleskope, GPS, Galileo, Starlink-Beispiele; optional Sentinel und OneWeb
 - **Sonne, Mond, Planeten** (Marker in echter Richtung, vergrößert), James-Webb-Teleskop, **Flug zum Mond** mit echter Mondphase
@@ -44,10 +44,11 @@ Ohne Wolkenarchiv lädt die App die Wolken direkt bei EUMETSAT (langsamer, ~30 s
 Einmalig: **Settings → Pages → Build and deployment → Source: „GitHub Actions“**.
 
 Danach baut der Workflow [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) die Seite bei jedem Push
-und **stündlich** neu. Dabei holt er neue Wolkenbilder (Archiv der letzten 30 Tage, ~0,5 MB pro Bild),
-Echtfarbenbilder für Europa/Afrika und Amerika (je 5 Tage, ~2 MB pro Bild) und
-alle 6 Stunden frische Bahndaten. Die Seite ist dann unter `https://<benutzer>.github.io/Erde/` erreichbar.
-Beim allerersten Lauf füllt sich das Wolkenarchiv schrittweise (60 Bilder pro Lauf).
+(oder von Hand: Actions → „Run workflow“) und holt dabei frische Satelliten-Bahndaten.
+Der **stündliche Abruf der Wolken- und Echtfarbenbilder ist abgeschaltet**: Das Bildarchiv wird nicht mehr gefüllt,
+die App lädt die Bilder direkt bei EUMETSAT bzw. NOAA (langsamer, vor allem Europa/Afrika, und ohne den 30-Tage-Rückblick
+aus dem Archiv). Wieder einschalten: Archiv-Schritte mit `scripts/fetch_imagery.py` und `schedule` im Workflow ergänzen.
+Die Seite ist unter `https://<benutzer>.github.io/Erde/` erreichbar.
 
 ## Windows-Programm (Erde.exe)
 
@@ -81,7 +82,7 @@ Datei klein (kein Electron). Wolken- und Bahndaten holt das Programm von der Git
 | `src/home.ts` | Zuhause-Ort und Marker |
 | `src/camera.ts` | Fokuspunkt, „Blick aus dem All“, Mondflug |
 | `src/ui.ts`, `src/style.css` | Bedienfeld, Zeitleiste |
-| `scripts/fetch_imagery.py` | Bildarchiv für Wolken und Echtfarben (läuft in GitHub Actions) |
+| `scripts/fetch_imagery.py` | Bildarchiv für Wolken und Echtfarben (derzeit nicht mehr im Workflow, kann von Hand laufen) |
 | `scripts/fetch-satellites.mjs` | Bahndaten von CelesTrak |
 | `src-tauri/` | Windows-Programm (Tauri-Hülle, Icon) |
 
