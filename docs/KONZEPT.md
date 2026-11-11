@@ -31,7 +31,7 @@ Planeten und Satelliten, startbare Flugzeug-Szenarien. **Keine Spielmechanik –
 | Satellitenbahnen | satellite.js (SGP4) | Standard für TLE/OMM-Bahndaten |
 | Himmelskörper | astronomy-engine | präzise Positionen von Sonne, Mond, Planeten ohne Server |
 | Wolken-Aufbereitung | Web Worker (OffscreenCanvas) | Infrarot → Wolkenschicht, ohne die Darstellung zu bremsen |
-| „Server“ | GitHub Actions (bei Push) + GitHub Pages | Bahndaten vorab laden; das stündliche Bildarchiv ist seit 2026-11 abgeschaltet |
+| „Server“ | GitHub Pages (Actions baut nur noch) | Bildarchiv und Bahnaktualisierung sind seit 2026-11 abgeschaltet |
 
 Nicht gewählt: Blender (Modellierwerkzeug, keine Laufzeit), Godot (keine Geo-Funktionen, alles selbst
 bauen), Unreal (schwer, Desktop-only).

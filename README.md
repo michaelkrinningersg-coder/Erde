@@ -44,10 +44,10 @@ Ohne Wolkenarchiv lädt die App die Wolken direkt bei EUMETSAT (langsamer, ~30 s
 Einmalig: **Settings → Pages → Build and deployment → Source: „GitHub Actions“**.
 
 Danach baut der Workflow [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) die Seite bei jedem Push
-(oder von Hand: Actions → „Run workflow“) und holt dabei frische Satelliten-Bahndaten.
+(oder von Hand: Actions → „Run workflow“). Er holt **keine Daten mehr**: weder Bilder noch Satelliten-Bahndaten.
 Der **stündliche Abruf der Wolken- und Echtfarbenbilder ist abgeschaltet**: Das Bildarchiv wird nicht mehr gefüllt,
 die App lädt die Bilder direkt bei EUMETSAT bzw. NOAA (langsamer, vor allem Europa/Afrika, und ohne den 30-Tage-Rückblick
-aus dem Archiv). Wieder einschalten: Archiv-Schritte mit `scripts/fetch_imagery.py` und `schedule` im Workflow ergänzen.
+aus dem Archiv). Die Bahndaten bleiben auf dem mitgelieferten Stand (`public/data/satellites.json`, Erneuerung von Hand mit `npm run fetch:sats` und Commit). Wieder einschalten: Schritte mit `scripts/fetch_imagery.py` bzw. `npm run fetch:sats` und `schedule` im Workflow ergänzen.
 Die Seite ist unter `https://<benutzer>.github.io/Erde/` erreichbar.
 
 ## Windows-Programm (Erde.exe)

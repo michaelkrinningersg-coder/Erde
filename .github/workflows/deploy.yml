@@ -1,7 +1,8 @@
 # Baut die Erde-App und veröffentlicht sie auf GitHub Pages.
-# Läuft bei jedem Push (und von Hand): holt frische Satelliten-Bahndaten (CelesTrak).
-# Der stündliche Abruf der Wolken- und Echtfarbenbilder ist abgeschaltet (das Archiv wird nicht mehr gefüllt);
-# die App lädt die Bilder dann direkt bei EUMETSAT/NOAA. Das Skript scripts/fetch_imagery.py bleibt vorhanden.
+# Läuft bei jedem Push (und von Hand) und holt keine Daten mehr.
+# Abgeschaltet: Abruf der Wolken- und Echtfarbenbilder (die App lädt sie direkt bei EUMETSAT/NOAA) und der
+# Satelliten-Bahndaten (die App nutzt den mitgelieferten Stand in public/data/satellites.json).
+# Die Skripte scripts/fetch_imagery.py und scripts/fetch-satellites.mjs (npm run fetch:sats) bleiben vorhanden.
 #
 # Einmalig nötig: Repository → Settings → Pages → Source: „GitHub Actions“.
 name: Erde bauen & veröffentlichen
@@ -33,10 +34,6 @@ jobs:
           cache: npm
 
       - run: npm ci
-
-      - name: Satelliten-Bahndaten aktualisieren (nur bei Push oder von Hand, CelesTrak bittet um sparsame Abfragen)
-        run: npm run fetch:sats
-        continue-on-error: true # sonst bleibt der mitgelieferte Stand
 
       - run: npm run build
 
